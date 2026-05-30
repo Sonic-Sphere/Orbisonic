@@ -62,6 +62,18 @@ final class DiagnosticRoutingRegressionTests: XCTestCase {
         XCTAssertTrue(function.contains("deviceConfig?.channelCount"))
     }
 
+    func testRefreshScriptInjectsSwiftExecutorLegacyOverride() throws {
+        // A SwiftUI context-menu Button action invoked through an AppKit
+        // menu-item callback crashes in swift_task_isCurrentExecutorWithFlagsImpl
+        // (EXC_BAD_ACCESS) under the Swift 6 concurrency runtime. The bundle's
+        // Info.plist must carry the legacy executor override so `open`
+        // (LaunchServices) sets it at process start.
+        let script = try source("scripts/refresh-orbisonic-app.sh")
+        XCTAssertTrue(script.contains("LSEnvironment"))
+        XCTAssertTrue(script.contains("SWIFT_IS_CURRENT_EXECUTOR_LEGACY_MODE_OVERRIDE"))
+        XCTAssertTrue(script.contains("legacy"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))
