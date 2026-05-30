@@ -882,7 +882,11 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var isRoonTransportCommandInFlight = false
     @Published private(set) var isLiveMonitorTransitioning = false
     @Published private(set) var sourceSwitchTargetMode: SourceMode?
-    @Published private(set) var isLocalFileLoading = false
+    @Published private(set) var isLocalFileLoading = false {
+        didSet {
+            if !isLocalFileLoading { endLoadActivityIfLoading() }
+        }
+    }
     @Published private(set) var activity: PlaybackActivity = .idle
 
     /// Output device currently being pushed to CoreAudio by an in-flight
@@ -3639,6 +3643,10 @@ final class OrbisonicViewModel: ObservableObject {
         clearPendingLocalPresentation()
     }
 
+    func setActivityForTesting(_ activity: PlaybackActivity) {
+        self.activity = activity
+    }
+
     func setSourceModeForTesting(_ mode: SourceMode) {
         sourceMode = mode
         if mode != .spotify {
@@ -3858,6 +3866,7 @@ final class OrbisonicViewModel: ObservableObject {
         )
         statusMessage = requestImmediateStatus(request)
         isLocalFileLoading = true
+        activity = PlaybackActivity(phase: .probing, detail: localLoadActivityName(for: request))
         publishPendingLocalIntent(for: request)
         logLocalTransportTiming(
             debugTiming,
@@ -3917,6 +3926,21 @@ final class OrbisonicViewModel: ObservableObject {
 
     private func requestTrackTitle(_ request: LocalFileLoadRequest) -> String? {
         request.queueCommit.flatMap { queueTrack(for: $0.index)?.displayTitle }
+    }
+
+    private func localLoadActivityName(for request: LocalFileLoadRequest) -> String {
+        requestTrackTitle(request) ?? request.url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Reset activity to idle only if it currently reflects a load phase, so a
+    /// concurrent output-device switch overlay is never clobbered.
+    private func endLoadActivityIfLoading() {
+        switch activity.phase {
+        case .probing, .decoding, .converting, .preparing:
+            activity = .idle
+        case .idle, .switchingOutput:
+            break
+        }
     }
 
     private func requestImmediateStatus(_ request: LocalFileLoadRequest) -> String {
@@ -4668,6 +4692,7 @@ final class OrbisonicViewModel: ObservableObject {
         }
         pendingSessionQueueIndex = request.queueCommit?.index
         isLocalFileLoading = true
+        activity = PlaybackActivity(phase: .decoding, detail: localLoadActivityName(for: request))
         statusMessage = requestImmediateStatus(request)
         let audioLoader = localAudioLoader
         logLocalTransportTiming(

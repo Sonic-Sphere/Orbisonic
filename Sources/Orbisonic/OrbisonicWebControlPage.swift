@@ -116,6 +116,15 @@ header{
 .prog{margin-top:18px}
 .bar{height:6px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden}
 .bar>span{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent2));box-shadow:0 0 12px var(--glow);transition:width .4s ease}
+.activity{display:none;align-items:center;gap:10px;margin:12px 0 0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid var(--edge)}
+.activity.on{display:flex}
+.activity .spin{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.18);border-top-color:var(--accent);animation:orbspin .8s linear infinite;flex:0 0 auto}
+.activity .alabel{font-size:13px;color:var(--ink);flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.activity .abar{height:4px;flex:0 0 90px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden}
+.activity .abar>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;transition:width .3s ease}
+.activity.indet .abar>span{width:40%;animation:orbslide 1.1s ease-in-out infinite}
+@keyframes orbspin{to{transform:rotate(360deg)}}
+@keyframes orbslide{0%{margin-left:-40%}100%{margin-left:100%}}
 .times{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:7px;font-variant-numeric:tabular-nums}
 /* Transport */
 .transport{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:20px}
@@ -262,6 +271,12 @@ footer b{color:var(--muted);font-weight:600}
     </div>
     <div class="status-pill" id="statusPill"><span class="dot"></span><span id="statusLabel">Linking</span></div>
   </header>
+
+  <div class="activity" id="activity" aria-live="polite">
+    <span class="spin"></span>
+    <span class="alabel" id="activityLabel"></span>
+    <span class="abar"><span id="activityFill"></span></span>
+  </div>
 
   <div class="grid">
     <div class="col">
@@ -432,12 +447,25 @@ function setConn(ok){
 /* ---- render ---- */
 function render(s){
   if(!s)return;lastState=s;
+  renderActivity(s.activity);
   renderPlayer(s.player);
   renderSources(s.input);
   renderRouting(s.routing);
   renderMusic(s.localMusic);
   renderDiagnostics(s.diagnostics);
   renderBuild(s.build);
+}
+
+function renderActivity(a){
+  const el=$('activity');if(!el)return;
+  if(!a||!a.isBusy){el.classList.remove('on');return;}
+  el.classList.add('on');
+  $('activityLabel').textContent=clean(a.label)||'Working...';
+  const indet=Boolean(a.isIndeterminate);
+  el.classList.toggle('indet',indet);
+  const fill=$('activityFill');
+  if(indet){fill.style.width='';}
+  else{const p=Math.max(0,Math.min(1,Number(a.progress)||0));fill.style.width=(p*100)+'%';}
 }
 
 function renderPlayer(p){

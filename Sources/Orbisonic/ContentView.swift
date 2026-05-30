@@ -879,6 +879,33 @@ private struct LocalMusicThumbnailView: View {
     }
 }
 
+private struct ActivityBanner: View {
+    let activity: PlaybackActivity
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let progress = activity.clampedProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 90)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(activity.label)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
+        .shadow(radius: 12, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(activity.label)
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model = OrbisonicViewModel()
     @AppStorage("Orbisonic.hasConfirmedLoopbackSetup") private var hasConfirmedLoopbackSetup = false
@@ -925,6 +952,14 @@ struct ContentView: View {
         appShell
             .padding(24)
             .frame(minWidth: 1_220, minHeight: 780, alignment: .topLeading)
+            .overlay(alignment: .top) {
+                if model.activity.isBusy {
+                    ActivityBanner(activity: model.activity)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: model.activity)
             .background(
                 ZStack {
                     LinearGradient(

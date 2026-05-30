@@ -215,8 +215,17 @@ struct OrbisonicWebState: Encodable {
         let machineIP: String
     }
 
+    struct Activity: Encodable {
+        let phase: String
+        let label: String
+        let isBusy: Bool
+        let isIndeterminate: Bool
+        let progress: Double?
+    }
+
     let generatedAt: String
     let controlEnabled: Bool
+    let activity: Activity
     let urls: URLs
     let player: Player
     let input: Input
@@ -608,6 +617,13 @@ extension OrbisonicViewModel {
         OrbisonicWebState(
             generatedAt: ISO8601DateFormatter().string(from: Date()),
             controlEnabled: controlEnabled,
+            activity: OrbisonicWebState.Activity(
+                phase: activity.phase.rawValue,
+                label: activity.label,
+                isBusy: activity.isBusy,
+                isIndeterminate: activity.isIndeterminate,
+                progress: activity.clampedProgress
+            ),
             urls: OrbisonicWebState.URLs(
                 publicPage: self.webPublicPageURL,
                 controlPage: controlEnabled ? OrbisonicWebServer.controlPageURL : nil

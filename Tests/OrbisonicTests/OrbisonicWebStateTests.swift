@@ -3,6 +3,30 @@ import XCTest
 
 final class OrbisonicWebStateTests: XCTestCase {
     @MainActor
+    func testWebStateSurfacesPlaybackActivityForBothPages() {
+        let model = OrbisonicViewModel()
+        model.setActivityForTesting(PlaybackActivity(phase: .decoding, detail: "Aurora.flac", progress: 0.5))
+
+        let controlState = model.webStateForTesting(controlEnabled: true)
+        XCTAssertEqual(controlState.activity.phase, "decoding")
+        XCTAssertTrue(controlState.activity.isBusy)
+        XCTAssertFalse(controlState.activity.isIndeterminate)
+        XCTAssertEqual(controlState.activity.progress, 0.5)
+        XCTAssertTrue(controlState.activity.label.contains("Aurora.flac"))
+
+        let publicState = model.webStateForTesting(controlEnabled: false)
+        XCTAssertEqual(publicState.activity.phase, "decoding")
+        XCTAssertTrue(publicState.activity.isBusy)
+
+        model.setActivityForTesting(.idle)
+        let idle = model.webStateForTesting(controlEnabled: true)
+        XCTAssertEqual(idle.activity.phase, "idle")
+        XCTAssertFalse(idle.activity.isBusy)
+        XCTAssertTrue(idle.activity.label.isEmpty)
+        XCTAssertNil(idle.activity.progress)
+    }
+
+    @MainActor
     func testControlStateIncludesDiagnosticsAndErrorsWhilePublicStateDoesNot() {
         let model = OrbisonicViewModel()
 
