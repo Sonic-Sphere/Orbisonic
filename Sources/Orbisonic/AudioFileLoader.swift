@@ -24,6 +24,23 @@ struct LoadedAudioFile: @unchecked Sendable {
             channelCount: monoBuffers.count
         ) ?? 0
     }
+
+    // Rebind the identity URL without touching decoded audio. Used after an
+    // offline managed transcode so the displayed/highlighted file stays the
+    // user's original path even though the decoded copy came from a cache CAF.
+    func withURL(_ newURL: URL) -> LoadedAudioFile {
+        LoadedAudioFile(
+            url: newURL,
+            monoFormat: monoFormat,
+            monitorFormat: monitorFormat,
+            sampleRate: sampleRate,
+            frameCount: frameCount,
+            layout: layout,
+            metadata: metadata,
+            monoBuffers: monoBuffers,
+            monitorBuffer: monitorBuffer
+        )
+    }
 }
 
 enum PreparedPCMPolicy {

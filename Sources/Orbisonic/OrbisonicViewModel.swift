@@ -1,5 +1,6 @@
 import AudioContracts
 import AudioCore
+import AudioImport
 import AppKit
 import AVFoundation
 import Foundation
@@ -4570,6 +4571,76 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
+    private func managedImportCacheDirectory() throws -> URL {
+        let base = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("Orbisonic/ManagedImports", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
+
+    private func managedImportCacheKey(originalURL: URL, targetSampleRateHertz: Double) -> String {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: originalURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? -1
+        let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let seed = "\(originalURL.path)|\(size)|\(Int64(mtime.rounded()))|\(Int(targetSampleRateHertz.rounded()))"
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in seed.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(format: "%016llx-%d", hash, Int(targetSampleRateHertz.rounded()))
+    }
+
+    // Off-rate production files cannot stream through the fixed-rate Dante
+    // session, so prepare (or reuse) a managed session-rate CAF copy and decode
+    // that instead. Returns the original URL unchanged when no conversion is
+    // needed (renderer not selected, or rates already match within 1 Hz).
+    private func resolveManagedSessionRateFile(
+        originalURL: URL,
+        sourceSampleRate: Double
+    ) async throws -> URL {
+        guard rendererOutputSelection != .none else { return originalURL }
+        let targetHertz = rendererOutputRoute.nominalSampleRate
+        guard targetHertz > 0, sourceSampleRate > 0 else { return originalURL }
+        guard abs(sourceSampleRate - targetHertz) > 1.0 else { return originalURL }
+
+        let targetRate = try AudioSampleRate(hertz: targetHertz)
+        let cacheDir = try managedImportCacheDirectory()
+        let key = managedImportCacheKey(originalURL: originalURL, targetSampleRateHertz: targetHertz)
+        let managedURL = cacheDir.appendingPathComponent("\(key).caf")
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: managedURL.path),
+           let size = (attrs[.size] as? NSNumber)?.int64Value, size > 0 {
+            return managedURL
+        }
+
+        let displayName = originalURL.lastPathComponent
+        statusMessage = "Converting \(displayName) to \(formatSampleRate(targetHertz)) for production\u{2026}"
+
+        let sessionFormat = AudioSessionFormat(
+            sampleRate: targetRate,
+            maxFramesPerBlock: 512,
+            dante: DanteOutputFormat(physicalChannelCount: 32, sampleRate: targetRate),
+            desktop: DesktopOutputFormat(sampleRate: targetRate)
+        )
+        let originalPath = originalURL.path
+        let managedPath = managedURL.path
+        let importTask = Task.detached(priority: .userInitiated) {
+            try ManagedAssetImporter().importAsset(
+                originalPath: originalPath,
+                managedPath: managedPath,
+                managedAssetID: key,
+                targetSessionFormat: sessionFormat
+            )
+        }
+        let descriptor = try await importTask.value
+        return URL(fileURLWithPath: descriptor.managedPath)
+    }
+
     private func startLocalFileLoad(_ request: LocalFileLoadRequest) {
         guard isCurrentLocalPlaybackGeneration(request.generation) else {
             clearPendingLocalPresentation(generation: request.generation)
@@ -4694,8 +4765,25 @@ final class OrbisonicViewModel: ObservableObject {
                     return
                 }
 
+                var effectiveURL = request.url
+                if let descriptor = localDescriptor {
+                    do {
+                        effectiveURL = try await self.resolveManagedSessionRateFile(
+                            originalURL: request.url,
+                            sourceSampleRate: descriptor.sourceSampleRate
+                        )
+                    } catch is CancellationError {
+                        self.completeLocalFileLoad(request: request, result: .failure(CancellationError()))
+                        return
+                    } catch {
+                        self.completeLocalFileLoad(request: request, result: .failure(error))
+                        return
+                    }
+                }
+
                 if Self.enableStreamingLocalPlayback,
                    request.autoplay,
+                   effectiveURL == request.url,
                    self.queuedLocalFileLoadRequest == nil,
                    let descriptor = localDescriptor {
                     do {
@@ -4728,7 +4816,7 @@ final class OrbisonicViewModel: ObservableObject {
                     fileURL: request.url
                 )
                 let decodeTask = Task.detached(priority: .utility) {
-                    try audioLoader(request.url, request.debugTiming)
+                    try audioLoader(effectiveURL, request.debugTiming)
                 }
                 self.localFileDecodeTask = decodeTask
                 self.localFileDecodeRequestID = request.id
@@ -4767,7 +4855,8 @@ final class OrbisonicViewModel: ObservableObject {
                     )
                     return
                 }
-                self.completeLocalFileLoad(request: request, result: .success(loaded))
+                let identityLoaded = effectiveURL == request.url ? loaded : loaded.withURL(request.url)
+                self.completeLocalFileLoad(request: request, result: .success(identityLoaded))
             } catch {
                 guard let self else { return }
                 self.clearLocalFileDecodeTask(for: request.id)
