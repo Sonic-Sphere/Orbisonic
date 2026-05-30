@@ -198,6 +198,34 @@ final class ExistingUIFreezeTests: XCTestCase {
         XCTAssertFalse(rendererMeterBlock.contains("SonicSphereTopology.outputSpeakers(for: scene.preset"))
     }
 
+    func testRefreshedOutputDeviceApplyIsNonBlockingOnMainActor() throws {
+        let engine = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        // Engine exposes an async apply that isolates the blocking CoreAudio
+        // syscall on a dedicated serial queue via a continuation.
+        XCTAssertTrue(engine.contains("func setOutputDeviceAsync"))
+        XCTAssertTrue(engine.contains("outputDeviceApplyQueue"))
+        XCTAssertTrue(
+            engine.contains("withCheckedContinuation") || engine.contains("withCheckedThrowingContinuation"))
+        let asyncBlock = try block(named: "func setOutputDeviceAsync", endingBefore: "func stop()", in: engine)
+        XCTAssertTrue(asyncBlock.contains("outputDeviceApplyQueue"))
+        XCTAssertTrue(asyncBlock.contains(".async {"))
+        XCTAssertTrue(asyncBlock.contains("AudioUnitSetProperty"))
+
+        // The route-refresh application path must not block the MainActor on the
+        // synchronous setOutputDevice anymore.
+        let refreshBlock = try block(
+            named: "private func applyRouteRefreshSnapshot",
+            endingBefore: "private func publishTuning",
+            in: vm
+        )
+        XCTAssertFalse(refreshBlock.contains("try engine.setOutputDevice(refreshedActiveRoute.deviceID)"))
+        XCTAssertTrue(refreshBlock.contains("planOutputDeviceApply"))
+        XCTAssertTrue(refreshBlock.contains("beginAsyncOutputDeviceApply"))
+        XCTAssertTrue(vm.contains("setOutputDeviceAsync"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))

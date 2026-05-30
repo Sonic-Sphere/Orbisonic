@@ -883,6 +883,13 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var isLiveMonitorTransitioning = false
     @Published private(set) var sourceSwitchTargetMode: SourceMode?
     @Published private(set) var isLocalFileLoading = false
+    @Published private(set) var activity: PlaybackActivity = .idle
+
+    /// Output device currently being pushed to CoreAudio by an in-flight
+    /// async apply, if any. Guards against overlapping device switches.
+    private var outputDeviceApplyInFlightID: AudioDeviceID?
+    /// Last output device id successfully applied via the async refresh path.
+    private var lastAppliedOutputDeviceID: AudioDeviceID = 0
 
     let meterStore = ChannelMeterStore()
     let monitorMeterStore = ChannelMeterStore()
@@ -9428,6 +9435,30 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
+    /// Apply a refreshed output device without blocking the MainActor. The
+    /// expensive CoreAudio syscall runs on the engine's serial queue while the
+    /// UI stays responsive; `activity` surfaces the switch to both UIs.
+    private func beginAsyncOutputDeviceApply(deviceID: AudioDeviceID, deviceName: String) {
+        outputDeviceApplyInFlightID = deviceID
+        activity = PlaybackActivity(phase: .switchingOutput, detail: deviceName)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.outputDeviceApplyInFlightID = nil
+                if self.activity.phase == .switchingOutput { self.activity = .idle }
+            }
+            do {
+                try await self.engine.setOutputDeviceAsync(deviceID)
+                self.lastAppliedOutputDeviceID = deviceID
+            } catch {
+                AppLogger.shared.warning(
+                    category: "route",
+                    "Could not apply refreshed output device (async): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
     private func applyRouteRefreshSnapshot(_ snapshot: RouteRefreshSnapshot) {
         isRouteRefreshInFlight = false
         defer {
@@ -9536,16 +9567,18 @@ final class OrbisonicViewModel: ObservableObject {
             outputRoute = refreshedActiveRoute
             configureMonitorMeters()
 
-            var routeApplyError: String?
+            let routeApplyError: String? = nil
             var didApplyOutputDevice = false
-            if refreshedActiveRoute.isAvailable, !isPlaying, !isTestTonePlaying, !isDiagnosticSequencePlaying {
-                do {
-                    try engine.setOutputDevice(refreshedActiveRoute.deviceID)
-                    didApplyOutputDevice = true
-                } catch {
-                    routeApplyError = error.localizedDescription
-                    AppLogger.shared.warning(category: "route", "Could not apply refreshed output device: \(error.localizedDescription)")
-                }
+            let applyPlan = planOutputDeviceApply(
+                refreshedDeviceID: refreshedActiveRoute.deviceID,
+                isAvailable: refreshedActiveRoute.isAvailable,
+                isBusy: isPlaying || isTestTonePlaying || isDiagnosticSequencePlaying,
+                currentlyAppliedDeviceID: lastAppliedOutputDeviceID,
+                inFlightDeviceID: outputDeviceApplyInFlightID
+            )
+            if case let .apply(deviceID) = applyPlan {
+                didApplyOutputDevice = true
+                beginAsyncOutputDeviceApply(deviceID: deviceID, deviceName: refreshedActiveRoute.deviceName)
             }
 
             AppLogger.shared.notice(

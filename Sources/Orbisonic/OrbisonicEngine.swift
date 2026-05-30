@@ -801,6 +801,11 @@ final class OrbisonicEngine {
         AppLogger.shared.notice(category: "live-input", "Live input mute=\(muted)")
     }
 
+    /// Serial queue that isolates the blocking CoreAudio `AudioUnitSetProperty(CurrentDevice)`
+    /// syscall off the MainActor. Dante/AVB endpoints can make that HAL call block
+    /// for seconds.
+    private let outputDeviceApplyQueue = DispatchQueue(label: "com.orbisonic.output-device-apply")
+
     func setOutputDevice(_ deviceID: AudioDeviceID) throws {
         guard audioGraphEnabled else { return }
         guard deviceID != 0 else {
@@ -854,6 +859,55 @@ final class OrbisonicEngine {
         }
 
         return try restorePlayback(afterOutputDeviceChange: snapshot)
+    }
+
+    /// Async variant of `setOutputDevice`. Keeps the fast AVAudioEngine
+    /// teardown on the calling (main) actor but hops the blocking CoreAudio
+    /// `AudioUnitSetProperty(CurrentDevice)` syscall onto a dedicated serial
+    /// queue so it never freezes the UI. The engine is stopped before the hop,
+    /// so no AVAudioEngine graph mutation runs off the main actor.
+    @MainActor
+    func setOutputDeviceAsync(_ deviceID: AudioDeviceID) async throws {
+        guard audioGraphEnabled else { return }
+        guard deviceID != 0 else {
+            throw OutputDeviceSelectionError.invalidDevice
+        }
+
+        guard let audioUnit = engine.outputNode.audioUnit else {
+            throw OutputDeviceSelectionError.outputAudioUnitUnavailable
+        }
+
+        if engine.isRunning {
+            markPausedPlaybackNeedsReschedule(reason: "output device change")
+            cancelLocalGaplessScheduler(reason: "output device change")
+            engine.stop()
+            resetMonitorMeterLevels()
+        }
+
+        let queue = outputDeviceApplyQueue
+        // The AudioUnit is a C pointer (non-Sendable); it is only touched on
+        // the serial queue while the engine is stopped, so the hop is safe.
+        nonisolated(unsafe) let unit = audioUnit
+        let status: OSStatus = await withCheckedContinuation { continuation in
+            queue.async {
+                var selectedDeviceID = deviceID
+                let result = AudioUnitSetProperty(
+                    unit,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &selectedDeviceID,
+                    UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                continuation.resume(returning: result)
+            }
+        }
+
+        guard status == noErr else {
+            throw OutputDeviceSelectionError.setDeviceFailed(status)
+        }
+
+        AppLogger.shared.notice(category: "engine", "Selected output device id=\(deviceID) (async apply).")
     }
 
     func stop() {
