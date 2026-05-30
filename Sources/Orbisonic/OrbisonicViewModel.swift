@@ -7361,7 +7361,7 @@ final class OrbisonicViewModel: ObservableObject {
         try? engine.setDiagnosticMonitorOutputDevice(nil)
         beginDiagnosticPlaybackReplacingCurrent()
 
-        guard ensureOutputForAction(.monitor) else {
+        guard ensureOutputForAction(.renderer) else {
             restoreSourceAfterFailedDiagnosticStart()
             return
         }
@@ -7383,8 +7383,8 @@ final class OrbisonicViewModel: ObservableObject {
             activeDiagnosticChannelIndex = channel - 1
             activeDiagnosticChannelCount = Self.diagnosticSpeakerChannelCount
             activeDiagnosticWalkTitle = "Test Tone"
-            testToneStatus = "Playing channel \(channel) through Normal Monitor."
-            statusMessage = "Channel \(channel) tone is active through Normal Monitor on \(routeDisplayName)."
+            testToneStatus = "Playing channel \(channel) through the Sonic Sphere renderer."
+            statusMessage = "Channel \(channel) tone is active on the Sonic Sphere renderer via \(routeDisplayName)."
 
             applyRendererDiagnosticMeterLevels(index: channel - 1, monitorDownmixActive: monitorDownmix)
 

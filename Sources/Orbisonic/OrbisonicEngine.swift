@@ -928,6 +928,55 @@ final class OrbisonicEngine {
         )
     }
 
+    private func currentOutputDeviceConfiguration() -> (channelCount: Int, sampleRate: Double)? {
+        guard let audioUnit = engine.outputNode.audioUnit else { return nil }
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            &size
+        )
+        guard status == noErr, deviceID != 0 else { return nil }
+        let channels = outputDeviceChannelCount(deviceID)
+        guard channels > 0 else { return nil }
+        let rate = outputDeviceNominalSampleRate(deviceID)
+        return (channels, rate > 0 ? rate : preferredOutputSampleRate())
+    }
+
+    private func outputDeviceChannelCount(_ deviceID: AudioDeviceID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, raw) == noErr else { return 0 }
+        let listPtr = UnsafeMutableAudioBufferListPointer(raw.bindMemory(to: AudioBufferList.self, capacity: 1))
+        return listPtr.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private func outputDeviceNominalSampleRate(_ deviceID: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate) == noErr else { return 0 }
+        return Double(rate)
+    }
+
     func playDiagnosticChannelTone(
         channelIndex: Int,
         channelCount: Int,
@@ -945,7 +994,8 @@ final class OrbisonicEngine {
         }
         stopTestTone()
 
-        let sampleRate = preferredOutputSampleRate()
+        let deviceConfig = currentOutputDeviceConfiguration()
+        let sampleRate = deviceConfig?.sampleRate ?? preferredOutputSampleRate()
 
         let node: AVAudioSourceNode
         let diagnosticAudioDescription: String
@@ -968,7 +1018,7 @@ final class OrbisonicEngine {
         }
 
         if primaryOutputEnabled {
-            let hardwareChannelCount = Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
+            let hardwareChannelCount = deviceConfig?.channelCount ?? Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
             let primaryChannelCount = max(channelCount, hardwareChannelCount)
             let primaryFormat = try diagnosticChannelFormat(
                 channelCount: primaryChannelCount,
@@ -1309,12 +1359,14 @@ final class OrbisonicEngine {
         let stereoFormat = stereoMonitorFormat(sampleRate: sampleRate)
         engine.connect(preVolumeMixer, to: outputGainMixer, format: stereoFormat)
         engine.connect(outputGainMixer, to: engine.mainMixerNode, format: stereoFormat)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
     }
 
     private func configureRendererOutputGraph(format: AVAudioFormat) {
         engine.disconnectNodeOutput(preVolumeMixer)
         engine.disconnectNodeOutput(outputGainMixer)
-        engine.connect(outputGainMixer, to: engine.mainMixerNode, format: format)
+        engine.disconnectNodeOutput(engine.mainMixerNode)
+        engine.connect(outputGainMixer, to: engine.outputNode, format: format)
     }
 
     private struct OutputDevicePlaybackSnapshot {
