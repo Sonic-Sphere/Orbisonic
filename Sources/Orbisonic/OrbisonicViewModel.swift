@@ -1261,7 +1261,7 @@ final class OrbisonicViewModel: ObservableObject {
     func refreshWebPageURLs() {
         let urls = OrbisonicWebServer.urlSet(controlToken: webControlToken)
         webPublicPageURL = urls.publicURL
-        webControlPageURL = ""
+        webControlPageURL = urls.controlURL
     }
 
     var webControlTokenForLocalServer: String {

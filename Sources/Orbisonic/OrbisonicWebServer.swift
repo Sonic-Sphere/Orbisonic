@@ -18,6 +18,7 @@ extension OrbisonicWebServer {
 
 struct OrbisonicWebURLSet: Equatable {
     let publicURL: String
+    let controlURL: String
 }
 
 private enum OrbisonicWebID {
@@ -249,11 +250,17 @@ final class OrbisonicWebServer {
         controlTokenLock.unlock()
     }
 
+    static var controlPageURL: String {
+        let host = preferredLANHost()
+        return "http://\(host):\(OrbisonicWebConstants.port)\(OrbisonicWebConstants.basePath)/control"
+    }
+
     static func urlSet(controlToken: String) -> OrbisonicWebURLSet {
         let host = preferredLANHost()
         let baseURL = "http://\(host):\(OrbisonicWebConstants.port)\(OrbisonicWebConstants.basePath)"
         return OrbisonicWebURLSet(
-            publicURL: "\(baseURL)/"
+            publicURL: "\(baseURL)/",
+            controlURL: "\(baseURL)/control"
         )
     }
 
@@ -344,6 +351,16 @@ final class OrbisonicWebServer {
 
         if request.method == "GET", isPublicPagePath(request.path) {
             send(status: 200, contentType: "text/html; charset=utf-8", body: Self.publicPageHTML, on: connection)
+            return
+        }
+
+        if request.method == "GET",
+           request.path == "\(OrbisonicWebConstants.basePath)/control"
+            || request.path == "\(OrbisonicWebConstants.basePath)/control/" {
+            controlTokenLock.lock()
+            let token = controlToken
+            controlTokenLock.unlock()
+            send(status: 200, contentType: "text/html; charset=utf-8", body: Self.controlPageHTML(token: token), on: connection)
             return
         }
 
@@ -593,7 +610,7 @@ extension OrbisonicViewModel {
             controlEnabled: controlEnabled,
             urls: OrbisonicWebState.URLs(
                 publicPage: self.webPublicPageURL,
-                controlPage: nil
+                controlPage: controlEnabled ? OrbisonicWebServer.controlPageURL : nil
             ),
             player: makeWebPlayerState(controlEnabled: controlEnabled),
             input: controlEnabled ? makeWebInputState() : makeWebPublicInputState(),
@@ -633,13 +650,13 @@ extension OrbisonicViewModel {
                 localMusicChannelFilter = max(0, channels)
             }
         case "\(OrbisonicWebConstants.basePath)/api/local-music/track":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebTrackCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/playlist":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebPlaylistCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/queue":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebQueueCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/rescan":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            rescanLocalMusicLibrary()
         case "\(OrbisonicWebConstants.basePath)/api/diagnostics":
             try performWebDiagnosticsCommand(payload)
         default:
@@ -932,8 +949,8 @@ extension OrbisonicViewModel {
             rendererOutput: rendererOutputSelectionText,
             rendererStatus: rendererOutputStatusText,
             rendererScene: rendererSceneOutputText,
-            monitorOptions: [],
-            rendererOptions: []
+            monitorOptions: webMonitorOutputOptions(),
+            rendererOptions: webRendererOutputOptions()
         )
     }
 
@@ -946,8 +963,8 @@ extension OrbisonicViewModel {
             rendererOutput: "",
             rendererStatus: "",
             rendererScene: rendererSceneOutputText,
-            monitorOptions: [],
-            rendererOptions: []
+            monitorOptions: webMonitorOutputOptions(),
+            rendererOptions: webRendererOutputOptions()
         )
     }
 

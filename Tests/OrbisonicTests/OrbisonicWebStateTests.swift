@@ -13,7 +13,8 @@ final class OrbisonicWebStateTests: XCTestCase {
         let publicState = model.webStateForTesting(controlEnabled: false)
 
         XCTAssertTrue(controlState.controlEnabled)
-        XCTAssertNil(controlState.urls.controlPage)
+        XCTAssertNotNil(controlState.urls.controlPage)
+        XCTAssertEqual(controlState.urls.controlPage?.hasSuffix("/control"), true)
         XCTAssertEqual(controlState.diagnostics.availableTests, ["monitorWalk", "rendererWalk", "testTone"])
         XCTAssertEqual(controlState.diagnostics.selectedChannel, 12)
         XCTAssertEqual(controlState.build.lastError, "Desktop route error")
@@ -21,6 +22,7 @@ final class OrbisonicWebStateTests: XCTestCase {
         XCTAssertFalse(publicState.controlEnabled)
         XCTAssertEqual(publicState.diagnostics.availableTests, [])
         XCTAssertNil(publicState.build.lastError)
+        XCTAssertNil(publicState.urls.controlPage)
         XCTAssertNil(publicState.player.artworkURL)
     }
 
