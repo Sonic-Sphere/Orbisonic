@@ -228,7 +228,7 @@ private struct LocalPreparedFileCache {
     }
 
     private let capacity: Int
-    private let maxBytes: Int
+    private var maxBytes: Int
     private var entries: [String: Entry] = [:]
     private var order: UInt64 = 0
     private var totalBytes = 0
@@ -236,6 +236,11 @@ private struct LocalPreparedFileCache {
     init(capacity: Int, maxBytes: Int) {
         self.capacity = max(0, capacity)
         self.maxBytes = max(0, maxBytes)
+    }
+
+    mutating func updateMaxBytes(_ newValue: Int) {
+        maxBytes = max(0, newValue)
+        evictIfNeeded()
     }
 
     mutating func takeValid(for url: URL) -> LoadedAudioFile? {
@@ -680,10 +685,12 @@ final class OrbisonicViewModel: ObservableObject {
             guard preloadNextTrackEnabled != oldValue else { return }
             UserDefaults.standard.set(preloadNextTrackEnabled, forKey: Self.preloadNextTrackEnabledKey)
             if preloadNextTrackEnabled {
+                localPreparedFileCache.updateMaxBytes(systemMemoryProvider.snapshot().totalBytes)
                 scheduleAdjacentLocalFilePreloads(reason: "next-track preload enabled")
             } else {
                 cancelLocalPreparedFilePreload(reason: "next-track preload disabled")
                 localPreparedFileCache.removeAll()
+                localPreparedFileCache.updateMaxBytes(Self.maxPreparedCacheBytes)
                 nextTrackPreloadStatus = .idle
             }
         }
