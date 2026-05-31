@@ -2629,6 +2629,19 @@ final class OrbisonicEngine {
         )
     }
 
+    // AudioToolbox sizes an AVAudioPCMBuffer's backing store as
+    // channels * frameCapacity * bytesPerSample using 32-bit unsigned arithmetic
+    // (caulk::numeric::exceptional_mul<unsigned int>) and throws std::overflow_error
+    // when the product exceeds UInt32.max -- which aborts the process. A whole-file
+    // 31-channel float render of a file longer than ~12 min @48kHz trips this, so
+    // callers must verify the allocation fits before constructing the buffer.
+    static func outputBufferByteCapacityFits(frameCount: Int, channelCount: Int) -> Bool {
+        guard frameCount > 0, channelCount > 0 else { return false }
+        let bytesPerSample = 4
+        let totalBytes = Int64(frameCount) * Int64(channelCount) * Int64(bytesPerSample)
+        return totalBytes <= Int64(UInt32.max)
+    }
+
     private func renderedOutputBuffer(
         sourceBuffers: [AVAudioPCMBuffer],
         startFrame: Int,
@@ -2636,7 +2649,17 @@ final class OrbisonicEngine {
         format: AVAudioFormat
     ) -> AVAudioPCMBuffer? {
         guard frameCount > 0,
-              let buffer = AVAudioPCMBuffer(
+              Self.outputBufferByteCapacityFits(frameCount: frameCount, channelCount: Int(format.channelCount))
+        else {
+            if frameCount > 0 {
+                AppLogger.shared.error(
+                    category: "transport",
+                    "Output render buffer too large to allocate; falling back to stereo monitor frames=\(frameCount) channels=\(format.channelCount)"
+                )
+            }
+            return nil
+        }
+        guard let buffer = AVAudioPCMBuffer(
                 pcmFormat: format,
                 frameCapacity: AVAudioFrameCount(frameCount)
               ),
