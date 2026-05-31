@@ -827,13 +827,16 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var dolbyReferencePlayerSnapshot: DolbyReferencePlayerControllerSnapshot = .idle
     @Published private(set) var currentAtmosDRPTrack: LocalMusicTrack?
     @Published private(set) var localMusicSettings = LocalMusicSettings()
-    @Published private(set) var localMusicTracks: [LocalMusicTrack] = []
+    @Published private(set) var localMusicTracks: [LocalMusicTrack] = [] {
+        didSet { invalidateSortedLocalMusicTracksCache() }
+    }
     @Published private(set) var localMusicPlaylists: [LocalMusicPlaylist] = []
     @Published var selectedLibraryTrackID: String?
     @Published var selectedLocalMusicPlaylistID: String?
     @Published var localMusicSearchText = ""
     @Published var localMusicSortMode: PlaylistSortMode = OrbisonicViewModel.loadLocalMusicSortMode() {
         didSet {
+            invalidateSortedLocalMusicTracksCache()
             UserDefaults.standard.set(localMusicSortMode.rawValue, forKey: Self.localMusicSortModeKey)
             AppLogger.shared.notice(category: "local-music", "Sort mode set to \(localMusicSortMode.rawValue)")
         }
@@ -3858,8 +3861,28 @@ final class OrbisonicViewModel: ObservableObject {
     }
 #endif
 
+    private var cachedSortedLocalMusicTracks: [LocalMusicTrack]?
+
+    #if DEBUG
+    private(set) var localMusicSortComputeCountForTesting = 0
+    #endif
+
+    private func invalidateSortedLocalMusicTracksCache() {
+        cachedSortedLocalMusicTracks = nil
+    }
+
+    // Memoized: sorting the whole library is expensive and this is read on every
+    // SwiftUI body eval and web poll. Invalidated when tracks or sort mode change.
     private var sortedLocalMusicTracks: [LocalMusicTrack] {
-        localMusicTracks.sorted(by: localMusicComparator)
+        if let cached = cachedSortedLocalMusicTracks {
+            return cached
+        }
+        let sorted = localMusicTracks.sorted(by: localMusicComparator)
+        cachedSortedLocalMusicTracks = sorted
+        #if DEBUG
+        localMusicSortComputeCountForTesting += 1
+        #endif
+        return sorted
     }
 
     @discardableResult

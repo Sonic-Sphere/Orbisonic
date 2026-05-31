@@ -66,6 +66,58 @@ final class LocalMusicChannelFilterTests: XCTestCase {
         XCTAssertEqual(model.visibleLocalMusicTracks.map(\.displayTitle), ["Interstellar"])
     }
 
+    @MainActor
+    func testSortedLibraryIsMemoizedUntilInputsChange() throws {
+        let fixture = try ChannelFilterFixture()
+        defer { fixture.remove() }
+
+        let library = LocalMusicLibrary(supportURL: fixture.supportDirectory)
+        library.save(LocalMusicDatabase(
+            settings: LocalMusicSettings(),
+            tracks: [
+                Self.track(dir: fixture.directory, name: "b.flac", title: "Bravo", channels: 2, layout: "Stereo"),
+                Self.track(dir: fixture.directory, name: "a.flac", title: "Alpha", channels: 2, layout: "Stereo"),
+                Self.track(dir: fixture.directory, name: "c.flac", title: "Charlie", channels: 2, layout: "Stereo"),
+            ],
+            playlists: []
+        ))
+
+        let model = OrbisonicViewModel(
+            localAudioLoader: { _ in throw CocoaError(.fileReadNoSuchFile) },
+            localMusicLibrary: library
+        )
+
+        model.localMusicSortMode = .name
+        let baseline = model.localMusicSortComputeCountForTesting
+
+        // Repeated reads must reuse one sort, not recompute on every access.
+        XCTAssertEqual(model.visibleLocalMusicTracks.map(\.displayTitle), ["Alpha", "Bravo", "Charlie"])
+        _ = model.visibleLocalMusicTracks
+        _ = model.visibleLocalMusicTracks
+        XCTAssertEqual(
+            model.localMusicSortComputeCountForTesting, baseline + 1,
+            "Library sort must be memoized; recomputing on every access saturates the main actor."
+        )
+
+        // Filtering and search must reuse the cached sort, not invalidate it.
+        model.localMusicChannelFilter = 2
+        model.localMusicSearchText = "a"
+        _ = model.visibleLocalMusicTracks
+        XCTAssertEqual(
+            model.localMusicSortComputeCountForTesting, baseline + 1,
+            "Filtering/search must reuse the cached sort."
+        )
+
+        // Changing the sort mode must invalidate and recompute exactly once.
+        model.localMusicSortMode = .artist
+        _ = model.visibleLocalMusicTracks
+        _ = model.visibleLocalMusicTracks
+        XCTAssertEqual(
+            model.localMusicSortComputeCountForTesting, baseline + 2,
+            "Changing sort mode must trigger exactly one recompute."
+        )
+    }
+
     private static func track(dir: URL, name: String, title: String, channels: Int, layout: String) -> LocalMusicTrack {
         let url = dir.appendingPathComponent(name)
         return LocalMusicTrack(
