@@ -931,6 +931,7 @@ final class OrbisonicViewModel: ObservableObject {
     private let localMusicLibrary: LocalMusicLibrary
     private var localMusicBaseTracks: [LocalMusicTrack] = []
     private var localMusicMetadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+    private var localMusicMetadataScannedTrackIDs: Set<String> = []
     private var localMusicMetadataEnricher: LocalMusicMetadataEnriching?
     private let preloadsFirstLocalMusicTrack: Bool
     private let preloadsAdjacentLocalMusicTracks: Bool
@@ -2471,7 +2472,7 @@ final class OrbisonicViewModel: ObservableObject {
             ? "Local music metadata enhancement enabled."
             : "Local music metadata enhancement disabled."
         if enhancesMetadata {
-            scheduleLocalMusicMetadataEnhancement(reason: "setting enabled")
+            scheduleLocalMusicMetadataEnhancement(reason: "setting enabled", force: true)
         } else {
             localMusicMetadataEnrichmentTask?.cancel()
             localMusicMetadataEnrichmentTask = nil
@@ -2498,6 +2499,9 @@ final class OrbisonicViewModel: ObservableObject {
         localMusicBaseTracks = result.tracks
         localMusicMetadataOverlays = localMusicMetadataOverlays.filter { overlay in
             result.tracks.contains { $0.id == overlay.key }
+        }
+        localMusicMetadataScannedTrackIDs = localMusicMetadataScannedTrackIDs.filter { id in
+            result.tracks.contains { $0.id == id }
         }
         refreshEffectiveLocalMusicTracks()
         localMusicPlaylists = orderedLocalMusicPlaylistsAfterScan(result.playlists)
@@ -2533,7 +2537,7 @@ final class OrbisonicViewModel: ObservableObject {
             "Scanned watchFolders=\(localMusicSettings.watchFolderPaths.count) explicitPlaylists=\(localMusicSettings.m3uPlaylistPaths.count) tracks=\(localMusicTracks.count) playlists=\(localMusicPlaylists.count) skippedMissing=\(result.skippedMissingFiles)"
         )
         preloadFirstLocalMusicTrackIfNeeded(reason: "local music scan completed")
-        scheduleLocalMusicMetadataEnhancement(reason: "local music scan completed")
+        scheduleLocalMusicMetadataEnhancement(reason: "local music scan completed", force: true)
     }
 
     func loadSelectedLocalMusicTrack() {
@@ -5580,6 +5584,11 @@ final class OrbisonicViewModel: ObservableObject {
         localMusicSettings = Self.normalizedLocalMusicSettings(database.settings)
         localMusicBaseTracks = database.tracks
         localMusicMetadataOverlays = database.metadataOverlays
+        if database.metadataScannedTrackIDs.isEmpty, !database.tracks.isEmpty {
+            localMusicMetadataScannedTrackIDs = Set(database.tracks.map(\.id))
+        } else {
+            localMusicMetadataScannedTrackIDs = database.metadataScannedTrackIDs
+        }
         refreshEffectiveLocalMusicTracks()
         localMusicPlaylists = database.playlists
         sessionQueue = []
@@ -6098,7 +6107,8 @@ final class OrbisonicViewModel: ObservableObject {
             settings: localMusicSettings,
             tracks: localMusicBaseTracks,
             playlists: localMusicPlaylists,
-            metadataOverlays: localMusicMetadataOverlays
+            metadataOverlays: localMusicMetadataOverlays,
+            metadataScannedTrackIDs: localMusicMetadataScannedTrackIDs
         ))
     }
 
@@ -6152,7 +6162,7 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
-    private func scheduleLocalMusicMetadataEnhancement(reason: String) {
+    private func scheduleLocalMusicMetadataEnhancement(reason: String, force: Bool = false) {
         localMusicMetadataEnrichmentTask?.cancel()
         guard localMusicSettings.enhancesMetadata,
               let localMusicMetadataEnricher,
@@ -6161,24 +6171,31 @@ final class OrbisonicViewModel: ObservableObject {
 
         let tracks = localMusicBaseTracks
         let existingOverlays = localMusicMetadataOverlays
-        localMusicMetadataEnrichmentTask = Task { @MainActor [weak self] in
-            let enrichedOverlays = await localMusicMetadataEnricher.enrich(
+        let alreadyScanned = localMusicMetadataScannedTrackIDs
+        localMusicMetadataEnrichmentTask = Task(priority: .background) { @MainActor [weak self] in
+            let result = await localMusicMetadataEnricher.enrich(
                 tracks: tracks,
-                existingOverlays: existingOverlays
+                existingOverlays: existingOverlays,
+                alreadyScannedTrackIDs: alreadyScanned,
+                forceRescan: force
             )
             guard let self, !Task.isCancelled else { return }
             self.localMusicMetadataEnrichmentTask = nil
             guard self.localMusicSettings.enhancesMetadata else { return }
-            guard enrichedOverlays != self.localMusicMetadataOverlays else { return }
+
+            let overlaysChanged = result.overlays != self.localMusicMetadataOverlays
+            let scannedChanged = result.scannedTrackIDs != self.localMusicMetadataScannedTrackIDs
+            guard overlaysChanged || scannedChanged else { return }
 
             let previousDisplayTracks = self.localMusicTracks
-            self.localMusicMetadataOverlays = enrichedOverlays
+            self.localMusicMetadataOverlays = result.overlays
+            self.localMusicMetadataScannedTrackIDs = result.scannedTrackIDs
             self.refreshEffectiveLocalMusicTracks()
             self.persistLocalMusicDatabase()
             let changedCount = zip(previousDisplayTracks, self.localMusicTracks).filter { $0 != $1 }.count
             AppLogger.shared.notice(
                 category: "local-music",
-                "Applied metadata enhancement reason=\(reason) changedTracks=\(changedCount)"
+                "Applied metadata enhancement reason=\(reason) force=\(force) changedTracks=\(changedCount) scanned=\(result.scannedTrackIDs.count)"
             )
         }
     }

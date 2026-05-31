@@ -73,8 +73,10 @@ protocol LocalMusicMetadataLookupClient: Sendable {
 protocol LocalMusicMetadataEnriching: Sendable {
     func enrich(
         tracks: [LocalMusicTrack],
-        existingOverlays: [String: LocalMusicMetadataOverlay]
-    ) async -> [String: LocalMusicMetadataOverlay]
+        existingOverlays: [String: LocalMusicMetadataOverlay],
+        alreadyScannedTrackIDs: Set<String>,
+        forceRescan: Bool
+    ) async -> (overlays: [String: LocalMusicMetadataOverlay], scannedTrackIDs: Set<String>)
 }
 
 final class LocalMusicMetadataEnricher: LocalMusicMetadataEnriching, @unchecked Sendable {
@@ -94,20 +96,25 @@ final class LocalMusicMetadataEnricher: LocalMusicMetadataEnriching, @unchecked 
 
     func enrich(
         tracks: [LocalMusicTrack],
-        existingOverlays: [String: LocalMusicMetadataOverlay]
-    ) async -> [String: LocalMusicMetadataOverlay] {
+        existingOverlays: [String: LocalMusicMetadataOverlay],
+        alreadyScannedTrackIDs: Set<String>,
+        forceRescan: Bool
+    ) async -> (overlays: [String: LocalMusicMetadataOverlay], scannedTrackIDs: Set<String>) {
         var overlays = existingOverlays
+        var scannedTrackIDs = alreadyScannedTrackIDs
         let localResolver = LocalMusicEditionMetadataResolver()
         let candidates = tracks.filter { track in
             track.applyingMetadataOverlay(overlays[track.id]).needsMetadataEnhancement
+                && (forceRescan || !alreadyScannedTrackIDs.contains(track.id))
         }
 
         var onlineCandidates: [LocalMusicTrack] = []
         for track in candidates {
-            guard !Task.isCancelled else { return overlays }
+            guard !Task.isCancelled else { return (overlays, scannedTrackIDs) }
             if var localResult = localResolver.lookup(track: track) {
                 _ = store(result: &localResult, for: track, overlays: &overlays)
             }
+            scannedTrackIDs.insert(track.id)
             if track.applyingMetadataOverlay(overlays[track.id]).needsMetadataEnhancement {
                 onlineCandidates.append(track)
             }
@@ -117,7 +124,7 @@ final class LocalMusicMetadataEnricher: LocalMusicMetadataEnriching, @unchecked 
         }
 
         for (index, track) in onlineCandidates.enumerated() {
-            guard !Task.isCancelled else { return overlays }
+            guard !Task.isCancelled else { return (overlays, scannedTrackIDs) }
 
             let localResult = localResolver.lookup(track: track)
             let existingOverlay = overlays[track.id]
@@ -146,12 +153,12 @@ final class LocalMusicMetadataEnricher: LocalMusicMetadataEnriching, @unchecked 
                 do {
                     try await Task.sleep(nanoseconds: lookupDelayNanoseconds)
                 } catch {
-                    return overlays
+                    return (overlays, scannedTrackIDs)
                 }
             }
         }
 
-        return overlays
+        return (overlays, scannedTrackIDs)
     }
 
     @discardableResult
@@ -296,8 +303,10 @@ final class CompositeLocalMusicMetadataLookupClient: LocalMusicMetadataLookupCli
     }
 }
 
-struct LocalMusicEditionMetadataResolver {
+final class LocalMusicEditionMetadataResolver {
     private let fileManager: FileManager
+    private var folderSidecarCache: [String: LocalMusicAlbumEditionContext] = [:]
+    private var folderArtworkCache: [String: URL?] = [:]
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -364,6 +373,16 @@ struct LocalMusicEditionMetadataResolver {
 
     private func albumContext(for track: LocalMusicTrack) -> LocalMusicAlbumEditionContext {
         let folderURL = track.url.deletingLastPathComponent()
+        var context = folderSidecarContext(for: folderURL)
+        context.channelLayout = context.channelLayout ?? channelLayout(from: track)
+        context.finalize()
+        return context
+    }
+
+    private func folderSidecarContext(for folderURL: URL) -> LocalMusicAlbumEditionContext {
+        if let cached = folderSidecarCache[folderURL.path] {
+            return cached
+        }
         var context = LocalMusicAlbumEditionContext(folderName: folderURL.lastPathComponent)
 
         if let manifest = readManifest(at: folderURL) {
@@ -396,12 +415,14 @@ struct LocalMusicEditionMetadataResolver {
             context.sourceNames.append("rip-report")
         }
 
-        context.channelLayout = context.channelLayout ?? channelLayout(from: track)
-        context.finalize()
+        folderSidecarCache[folderURL.path] = context
         return context
     }
 
     private func folderArtworkURL(for folderURL: URL) -> URL? {
+        if let cached = folderArtworkCache[folderURL.path] {
+            return cached
+        }
         let preferredNames = [
             "Folder", "folder", "Cover", "cover", "Front", "front", "Album", "album"
         ]
@@ -410,10 +431,12 @@ struct LocalMusicEditionMetadataResolver {
             for ext in extensions {
                 let candidate = folderURL.appendingPathComponent(name, isDirectory: false).appendingPathExtension(ext)
                 if fileManager.fileExists(atPath: candidate.path) {
+                    folderArtworkCache[folderURL.path] = candidate
                     return candidate
                 }
             }
         }
+        folderArtworkCache.updateValue(nil, forKey: folderURL.path)
         return nil
     }
 

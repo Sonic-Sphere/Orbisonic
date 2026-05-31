@@ -50,17 +50,20 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
     var tracks: [LocalMusicTrack] = []
     var playlists: [LocalMusicPlaylist] = []
     var metadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+    var metadataScannedTrackIDs: Set<String> = []
 
     init(
         settings: LocalMusicSettings = LocalMusicSettings(),
         tracks: [LocalMusicTrack] = [],
         playlists: [LocalMusicPlaylist] = [],
-        metadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+        metadataOverlays: [String: LocalMusicMetadataOverlay] = [:],
+        metadataScannedTrackIDs: Set<String> = []
     ) {
         self.settings = settings
         self.tracks = tracks
         self.playlists = playlists
         self.metadataOverlays = metadataOverlays
+        self.metadataScannedTrackIDs = metadataScannedTrackIDs
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -68,6 +71,7 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
         case tracks
         case playlists
         case metadataOverlays
+        case metadataScannedTrackIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +80,7 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
         tracks = try container.decodeIfPresent([LocalMusicTrack].self, forKey: .tracks) ?? []
         playlists = try container.decodeIfPresent([LocalMusicPlaylist].self, forKey: .playlists) ?? []
         metadataOverlays = try container.decodeIfPresent([String: LocalMusicMetadataOverlay].self, forKey: .metadataOverlays) ?? [:]
+        metadataScannedTrackIDs = try container.decodeIfPresent(Set<String>.self, forKey: .metadataScannedTrackIDs) ?? []
     }
 }
 
