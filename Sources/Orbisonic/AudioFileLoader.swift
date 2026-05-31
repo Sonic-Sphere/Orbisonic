@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreAudio
 import CoreAudioTypes
@@ -710,10 +711,16 @@ final class AudioFileLoader {
             let input = inputChannels[0]
             let left = outputChannels[0]
             let right = outputChannels[1]
-            for frameIndex in 0..<frameCount {
-                let sample = input[frameIndex]
-                left[frameIndex] += sample * coefficient.left
-                right[frameIndex] += sample * coefficient.right
+            let frames = vDSP_Length(frameCount)
+            // vDSP_vsma: dst = input * gain + dst (in place). Skip zero-gain sides
+            // (adding input * 0 contributes exactly 0 to the running sum).
+            if coefficient.left != 0 {
+                var gain = coefficient.left
+                vDSP_vsma(input, 1, &gain, left, 1, left, 1, frames)
+            }
+            if coefficient.right != 0 {
+                var gain = coefficient.right
+                vDSP_vsma(input, 1, &gain, right, 1, right, 1, frames)
             }
         }
     }
