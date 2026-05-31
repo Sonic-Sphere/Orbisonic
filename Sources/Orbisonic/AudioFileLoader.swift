@@ -50,6 +50,17 @@ enum PreparedPCMPolicy {
     static let maxPreparedCacheEntries = 2
     static let maxPreparedCacheBytes = maxFullPreparedPCMBytes
 
+    /// Returns true only when there is a concrete estimate that exceeds the cap.
+    /// Unknown estimates (nil) return false so unknown-size files keep their
+    /// existing behavior rather than being refused outright.
+    static func exceedsFullPrepareBudget(
+        estimatedDecodedBytes: Int?,
+        maxBytes: Int = Self.maxFullPreparedPCMBytes
+    ) -> Bool {
+        guard let estimatedDecodedBytes else { return false }
+        return estimatedDecodedBytes > maxBytes
+    }
+
     static func estimatedDecodedPCMBytes(
         durationSeconds: TimeInterval,
         sampleRate: Double,
@@ -101,6 +112,7 @@ enum AudioFileLoaderError: LocalizedError {
     case unsupportedAudioFile(String, String)
     case unsupportedChannelCount(UInt32, maxSupported: Int)
     case fileTooLarge
+    case fileTooLargeToPrepare(estimatedBytes: Int?, maxBytes: Int)
     case sourceBufferAllocationFailed
     case layoutCreationFailed(UInt32)
     case surroundFormatCreationFailed(Double, UInt32)
@@ -123,6 +135,8 @@ enum AudioFileLoaderError: LocalizedError {
                 : "Orbisonic supports up to \(maxSupported) source channels in this build. This file has \(count) channels."
         case .fileTooLarge:
             "This build reads the file into memory and the file is too large for that path."
+        case .fileTooLargeToPrepare(let estimatedBytes, let maxBytes):
+            "This track needs about \(estimatedBytes.map { PreparedPCMPolicy.formatMiB($0) } ?? "an unknown amount") of memory to load, which exceeds this device's \(PreparedPCMPolicy.formatMiB(maxBytes)) limit. Large-file streaming isn't enabled in this build."
         case .sourceBufferAllocationFailed:
             "Unable to allocate the source audio buffer."
         case .layoutCreationFailed(let channelCount):
@@ -146,6 +160,12 @@ enum AudioFileLoaderError: LocalizedError {
 }
 
 final class AudioFileLoader {
+    private let maxFullPreparedPCMBytes: Int
+
+    init(maxFullPreparedPCMBytes: Int = PreparedPCMPolicy.maxFullPreparedPCMBytes) {
+        self.maxFullPreparedPCMBytes = maxFullPreparedPCMBytes
+    }
+
     func load(
         url: URL,
         forceFFmpegFLACFallback: Bool = false,
@@ -341,7 +361,8 @@ final class AudioFileLoader {
             channelCount: Int(channelCount)
         )
         let estimatedPreparedBytesText = estimatedPreparedBytes.map(String.init) ?? "unknown"
-        let fullPrepareWithinBudget = estimatedPreparedBytes.map { $0 <= PreparedPCMPolicy.maxFullPreparedPCMBytes } ?? false
+        let maxFullPreparedBytes = maxFullPreparedPCMBytes
+        let fullPrepareWithinBudget = estimatedPreparedBytes.map { $0 <= maxFullPreparedBytes } ?? false
         let fullPrepareReason = fullPrepareWithinBudget
             ? "within selected-track full prepare budget"
             : "streaming required but fallback full prepare used for selected track"
@@ -350,15 +371,27 @@ final class AudioFileLoader {
             fileURL: url,
             extra: [
                 "estimatedDecodedBytes=\(estimatedPreparedBytesText)",
-                "maxFullPreparedPCMBytes=\(PreparedPCMPolicy.maxFullPreparedPCMBytes)",
+                "maxFullPreparedPCMBytes=\(maxFullPreparedBytes)",
                 "allowed=\(fullPrepareWithinBudget)",
                 "reason=\"\(fullPrepareReason)\""
             ]
         )
-        if !fullPrepareWithinBudget {
+        if PreparedPCMPolicy.exceedsFullPrepareBudget(
+            estimatedDecodedBytes: estimatedPreparedBytes,
+            maxBytes: maxFullPreparedBytes
+        ) {
+            AppLogger.shared.error(
+                category: "loader",
+                "Refusing oversized full prepare file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(maxFullPreparedBytes) reason=\"\(fullPrepareReason)\""
+            )
+            throw AudioFileLoaderError.fileTooLargeToPrepare(
+                estimatedBytes: estimatedPreparedBytes,
+                maxBytes: maxFullPreparedBytes
+            )
+        } else if !fullPrepareWithinBudget {
             AppLogger.shared.notice(
                 category: "loader",
-                "Full prepared PCM estimate exceeds preferred budget file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(PreparedPCMPolicy.maxFullPreparedPCMBytes) reason=\"\(fullPrepareReason)\""
+                "Full prepared PCM estimate exceeds preferred budget file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(maxFullPreparedBytes) reason=\"\(fullPrepareReason)\""
             )
         }
 

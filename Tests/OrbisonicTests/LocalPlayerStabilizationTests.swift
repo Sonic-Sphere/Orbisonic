@@ -679,6 +679,52 @@ final class LocalPlayerStabilizationTests: XCTestCase {
         )
     }
 
+    func testExceedsFullPrepareBudgetOnlyRefusesConcreteOverBudget() {
+        let cap = 100
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: nil, maxBytes: cap),
+            "Unknown estimate must not be refused"
+        )
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap - 1, maxBytes: cap),
+            "Under budget must not be refused"
+        )
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap, maxBytes: cap),
+            "Exactly at budget must not be refused"
+        )
+        XCTAssertTrue(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap + 1, maxBytes: cap),
+            "Over budget must be refused"
+        )
+    }
+
+    func testLoadRefusesFileExceedingInjectedPrepareBudget() throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+
+        let audioURL = fixture.directory.appendingPathComponent("oversized.wav")
+        try Self.writeSilentAudioFile(to: audioURL, frames: 48_000)
+        let loader = AudioFileLoader(maxFullPreparedPCMBytes: 1)
+
+        XCTAssertThrowsError(try loader.load(url: audioURL)) { error in
+            guard case AudioFileLoaderError.fileTooLargeToPrepare = error else {
+                XCTFail("Expected fileTooLargeToPrepare, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testLoadAllowsFileWithinDefaultPrepareBudget() throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+
+        let audioURL = fixture.directory.appendingPathComponent("within-budget.wav")
+        try Self.writeSilentAudioFile(to: audioURL, frames: 48_000)
+
+        XCTAssertNoThrow(try AudioFileLoader().load(url: audioURL))
+    }
+
     @MainActor
     func testAdjacentFullPCMPreloadIsDisabledByDefault() {
         let model = OrbisonicViewModel(localAudioLoader: Self.delayedLoader(delays: [:]))
