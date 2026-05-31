@@ -2644,6 +2644,14 @@ struct ContentView: View {
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if model.preloadNextTrackEnabled {
+                    Text("Next: \(model.nextTrackPreloadWebSummary().nextLabel ?? "\u{2014}") \u{2014} \(model.nextTrackPreloadStatus.displayLabel)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LabTheme.textSoft)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
                 if let badge = model.pureSphericalLosslessBadgePresentation {
                     pureSphericalLosslessBadge(badge)
                 }

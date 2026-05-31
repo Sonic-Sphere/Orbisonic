@@ -289,6 +289,7 @@ footer b{color:var(--muted);font-weight:600}
             <div class="np-title" id="npTitle">Nothing playing</div>
             <div class="np-sub" id="npSub"></div>
             <span class="np-src" id="npSrc" hidden></span>
+            <div class="np-preload" id="preloadChip" hidden></div>
           </div>
         </div>
         <div class="prog">
@@ -448,6 +449,7 @@ function setConn(ok){
 function render(s){
   if(!s)return;lastState=s;
   renderActivity(s.activity);
+  renderPreload(s.preload);
   renderPlayer(s.player);
   renderSources(s.input);
   renderRouting(s.routing);
@@ -466,6 +468,14 @@ function renderActivity(a){
   const fill=$('activityFill');
   if(indet){fill.style.width='';}
   else{const p=Math.max(0,Math.min(1,Number(a.progress)||0));fill.style.width=(p*100)+'%';}
+}
+
+function renderPreload(p){
+  const el=$('preloadChip');if(!el)return;
+  if(!p||!p.enabled){el.hidden=true;return;}
+  el.hidden=false;
+  const next=clean(p.nextLabel)||'—';
+  el.textContent='Next: '+next+' — '+(clean(p.statusLabel)||'Idle');
 }
 
 function renderPlayer(p){

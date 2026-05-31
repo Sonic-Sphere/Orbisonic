@@ -263,6 +263,25 @@ final class ExistingUIFreezeTests: XCTestCase {
         XCTAssertFalse(ensureBlock.contains("applyAsynchronously: true"))
     }
 
+    func testNextTrackPreloadIsWiredAndNextOnly() throws {
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        XCTAssertTrue(vm.contains("preloadNextTrackEnabled"))
+        XCTAssertTrue(vm.contains("Orbisonic.preloadNextTrackEnabled"))
+
+        XCTAssertTrue(vm.contains("planNextTrackPreload"))
+
+        let scheduleBlock = try block(
+            named: "private func scheduleAdjacentLocalFilePreloads",
+            endingBefore: "private func scheduleAdjacentLocalMetadataPreloads",
+            in: vm
+        )
+        XCTAssertTrue(scheduleBlock.contains("Array(candidates.prefix(1))"))
+
+        let cv = try source("Sources/Orbisonic/ContentView.swift")
+        XCTAssertTrue(cv.contains("$model.preloadNextTrackEnabled"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))
