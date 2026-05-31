@@ -1423,6 +1423,20 @@ final class OrbisonicEngine {
     }
 
     private func configureRendererOutputGraph(format: AVAudioFormat) {
+        // Re-wiring outputGainMixer -> outputNode on a RUNNING engine forces a
+        // synchronous audio-HAL (Dante 32ch device) uninit/reinit that can block
+        // the main thread for seconds and pump a nested runloop; a queued button
+        // mouse-down then re-enters SwiftUI _ButtonGesture and traps. The renderer
+        // output is always 31ch/48kHz, so on a track change the node is already
+        // wired correctly -- skip the reconfiguration when the format matches.
+        let alreadyConnectedToOutput = engine.outputConnectionPoints(for: outputGainMixer, outputBus: 0)
+            .contains { $0.node === engine.outputNode }
+        let currentFormat = outputGainMixer.outputFormat(forBus: 0)
+        if alreadyConnectedToOutput,
+           currentFormat.channelCount == format.channelCount,
+           currentFormat.sampleRate == format.sampleRate {
+            return
+        }
         engine.disconnectNodeOutput(preVolumeMixer)
         engine.disconnectNodeOutput(outputGainMixer)
         engine.disconnectNodeOutput(engine.mainMixerNode)

@@ -445,7 +445,7 @@ private struct MatroskaArtworkProbeStream: Decodable {
     }
 }
 
-final class LocalMusicLibrary {
+final class LocalMusicLibrary: @unchecked Sendable {
     private let fileManager: FileManager
     private let databaseURL: URL
     private let artworkDirectoryURL: URL
@@ -493,8 +493,7 @@ final class LocalMusicLibrary {
         do {
             let database = try JSONDecoder().decode(LocalMusicDatabase.self, from: data)
             let pruned = pruneMissingFiles(in: database)
-            let repaired = repairStaleMatroskaMetadata(in: pruned)
-            let indexed = repairMissingTrackIndexMetadata(in: repaired)
+            let indexed = repairMissingTrackIndexMetadata(in: pruned)
             if indexed != database {
                 save(indexed)
             }
@@ -869,10 +868,8 @@ final class LocalMusicLibrary {
         }
     }
 
-    private func repairStaleMatroskaMetadata(in database: LocalMusicDatabase) -> LocalMusicDatabase {
-        var repaired = database
-        var changed = false
-        repaired.tracks = database.tracks.map { track in
+    func repairingStaleMatroskaTracks(in tracks: [LocalMusicTrack], extractsAlbumArt: Bool) async -> [LocalMusicTrack] {
+        tracks.map { track in
             guard MatroskaFLACSupport.isMatroska(track.url),
                   fileManager.fileExists(atPath: track.path)
             else {
@@ -880,21 +877,18 @@ final class LocalMusicLibrary {
             }
 
             let needsMetadataRepair = track.channelCount <= 0
-            let needsArtworkRepair = database.settings.extractsAlbumArt
+            let needsArtworkRepair = extractsAlbumArt
                 && track.artworkPath == legacyMatroskaArtworkURL(for: track.url).path
             guard needsMetadataRepair || needsArtworkRepair else {
                 return track
             }
 
-            changed = true
             return matroskaMetadata(
                 for: track.url,
                 rootPath: track.rootPath,
-                extractsAlbumArt: database.settings.extractsAlbumArt
+                extractsAlbumArt: extractsAlbumArt
             )
         }
-
-        return changed ? repaired : database
     }
 
     private func repairMissingTrackIndexMetadata(in database: LocalMusicDatabase) -> LocalMusicDatabase {

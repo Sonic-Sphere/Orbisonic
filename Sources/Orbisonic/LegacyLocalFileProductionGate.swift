@@ -1,6 +1,7 @@
 import AudioContracts
 import AudioCore
 import AudioImport
+import CoreAudio
 import Foundation
 
 struct LegacyLocalFileSourceDescription: Equatable {
@@ -49,7 +50,10 @@ struct LegacyLocalFileProductionGate {
         systemOutputRoute: OutputRouteInfo,
         rendererRoute: OutputRouteInfo,
         rendererOutputSelected: Bool,
-        isSessionRunning: Bool = true
+        isSessionRunning: Bool = true,
+        coerceDesktopMonitorSampleRate: (AudioDeviceID, Double) -> Double? = { deviceID, targetRate in
+            OutputDeviceSampleRate.coerce(deviceID: deviceID, to: targetRate)
+        }
     ) -> LegacyLocalFileProductionAdmission {
         guard rendererOutputSelected else {
             return .allowed(
@@ -102,7 +106,13 @@ struct LegacyLocalFileProductionGate {
 
         let routeValidator = RouteCapabilityValidator()
         let danteCapability = routeValidator.danteRouteCapability(from: rendererRoute)
-        let desktopDescriptor = routeValidator.outputRouteDescriptor(from: desktopRoute)
+        let coercedDesktopRoute: OutputRouteInfo
+        if let resolvedRate = coerceDesktopMonitorSampleRate(desktopRoute.deviceID, sessionRate.hertz) {
+            coercedDesktopRoute = desktopRoute.withNominalSampleRate(resolvedRate)
+        } else {
+            coercedDesktopRoute = desktopRoute
+        }
+        let desktopDescriptor = routeValidator.outputRouteDescriptor(from: coercedDesktopRoute)
         let layout = AudioChannelLayoutDescriptor.fallbackLayout(channelCount: source.channelCount)
         let sourceDescriptor = SourceDescriptor(
             id: source.id,

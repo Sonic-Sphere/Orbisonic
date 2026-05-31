@@ -972,6 +972,7 @@ final class OrbisonicViewModel: ObservableObject {
     private var rendererDiagnosticsMonitorDownmixAvailable = false
     private var localMusicScanTask: Task<Void, Never>?
     private var localMusicMetadataEnrichmentTask: Task<Void, Never>?
+    private var localMusicMatroskaRepairTask: Task<Void, Never>?
     private var localPlayNowTask: Task<Void, Never>?
     private var localPlayNowSequence: UInt64 = 0
     private var localFileLoadTask: Task<Void, Never>?
@@ -5629,6 +5630,7 @@ final class OrbisonicViewModel: ObservableObject {
         }
         preloadFirstLocalMusicTrackIfNeeded(reason: "local music database loaded")
         scheduleLocalMusicMetadataEnhancement(reason: "local music database loaded")
+        scheduleLocalMusicMatroskaRepair(reason: "local music database loaded")
     }
 
     private func preloadFirstLocalMusicTrackIfNeeded(reason: String) {
@@ -6182,6 +6184,31 @@ final class OrbisonicViewModel: ObservableObject {
         sessionQueue = sessionQueue.map { track in
             effectiveTracksByID[track.id] ?? track.applyingMetadataOverlay(
                 localMusicSettings.enhancesMetadata ? localMusicMetadataOverlays[track.id] : nil
+            )
+        }
+    }
+
+    // Runs the Matroska channel/artwork repair off the synchronous load path.
+    // It launches ffprobe subprocesses (Process.waitUntilExit pumps a runloop),
+    // which must never happen on the main thread during the SwiftUI StateObject
+    // init or a screen-parameters notification can reenter the graph and abort.
+    private func scheduleLocalMusicMatroskaRepair(reason: String) {
+        localMusicMatroskaRepairTask?.cancel()
+        guard !Self.isRunningUnitTests, !localMusicBaseTracks.isEmpty else { return }
+        let tracks = localMusicBaseTracks
+        let extractsAlbumArt = localMusicSettings.extractsAlbumArt
+        let library = localMusicLibrary
+        localMusicMatroskaRepairTask = Task(priority: .background) { @MainActor [weak self] in
+            let repaired = await library.repairingStaleMatroskaTracks(in: tracks, extractsAlbumArt: extractsAlbumArt)
+            guard let self, !Task.isCancelled else { return }
+            self.localMusicMatroskaRepairTask = nil
+            guard repaired != self.localMusicBaseTracks else { return }
+            self.localMusicBaseTracks = repaired
+            self.refreshEffectiveLocalMusicTracks()
+            self.persistLocalMusicDatabase()
+            AppLogger.shared.notice(
+                category: "local-music",
+                "Repaired stale Matroska metadata reason=\(reason) tracks=\(repaired.count)"
             )
         }
     }
