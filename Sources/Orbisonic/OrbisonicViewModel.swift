@@ -627,6 +627,7 @@ final class OrbisonicViewModel: ObservableObject {
     private static let maxAdjacentMetadataCacheEntries = 16
     private static let maxFullPreparedPCMBytes = PreparedPCMPolicy.maxFullPreparedPCMBytes
     private static let maxAdjacentFullPreloadPCMBytes = PreparedPCMPolicy.maxAdjacentFullPreloadPCMBytes
+    private static let nextTrackPreloadAvailableRAMFraction = 0.5
     private static let maxPreparedCacheEntries = PreparedPCMPolicy.maxPreparedCacheEntries
     private static let maxPreparedCacheBytes = PreparedPCMPolicy.maxPreparedCacheBytes
     private static let diagnosticsLogTailMaxBytes = 256 * 1024
@@ -5659,12 +5660,15 @@ final class OrbisonicViewModel: ObservableObject {
         cancelLocalPreparedFilePreload(reason: "reschedule adjacent preloads: \(reason)")
         guard sourceMode == .filePlayback else { return }
 
-        let fullPCMPreloadEnabled = Self.enableAdjacentLocalPCMPreload && preloadsAdjacentLocalMusicTracks
+        let fullPCMPreloadEnabled = preloadNextTrackEnabled || preloadsAdjacentLocalMusicTracks
         if !fullPCMPreloadEnabled {
             logAdjacentLocalPCMPreloadDisabledIfNeeded(reason: reason)
         }
 
         let candidates = adjacentLocalFilePreloadCandidates()
+        if preloadNextTrackEnabled {
+            nextTrackPreloadStatus = candidates.isEmpty ? .noNextTrack : .idle
+        }
         guard !candidates.isEmpty else { return }
 
         let preloadGeneration = currentLocalFileLoadGeneration
@@ -5676,7 +5680,7 @@ final class OrbisonicViewModel: ObservableObject {
         guard fullPCMPreloadEnabled else { return }
 
         scheduleAdjacentFullLocalPCMPreloads(
-            candidates: candidates,
+            candidates: Array(candidates.prefix(1)),
             reason: reason,
             generation: preloadGeneration
         )
@@ -5815,6 +5819,7 @@ final class OrbisonicViewModel: ObservableObject {
                     ]
                 )
                 guard budgetDecision.allowed else { continue }
+                if self.preloadNextTrackEnabled { self.nextTrackPreloadStatus = .preparing }
 
                 self.logLocalTransportTiming(
                     debugTiming,
@@ -5883,6 +5888,9 @@ final class OrbisonicViewModel: ObservableObject {
                         for: candidate.track.url,
                         expectedKey: candidate.key
                     )
+                    if self.preloadNextTrackEnabled {
+                        self.nextTrackPreloadStatus = storeResult.stored ? .ready : .skippedLowMemory
+                    }
                     self.logLocalTransportTiming(
                         debugTiming,
                         storeResult.stored ? "adjacent full PCM preload finished" : "adjacent full PCM preload discarded",
@@ -5928,18 +5936,34 @@ final class OrbisonicViewModel: ObservableObject {
     }
 
     private func adjacentPreloadBudgetDecision(estimatedBytes: Int?) -> (allowed: Bool, reason: String) {
+        if preloadNextTrackEnabled {
+            let memory = systemMemoryProvider.snapshot()
+            let decision = planNextTrackPreload(
+                estimatedBytes: estimatedBytes,
+                availableBytes: memory.availableBytes,
+                fraction: Self.nextTrackPreloadAvailableRAMFraction
+            )
+            switch decision {
+            case .allow:
+                return (true, "within adaptive RAM budget")
+            case .skipLowMemory:
+                nextTrackPreloadStatus = .skippedLowMemory
+                return (false, "estimated decoded PCM exceeds adaptive RAM budget")
+            case .skipUnknownSize:
+                nextTrackPreloadStatus = .skippedUnknownSize
+                return (false, "missing decoded PCM estimate")
+            }
+        }
+
         guard adjacentFullPreloadPCMByteLimit > 0 else {
             return (false, "adjacent full PCM preload cap is zero")
         }
-
         guard let estimatedBytes, estimatedBytes > 0 else {
             return (false, "missing decoded PCM estimate")
         }
-
         guard estimatedBytes <= adjacentFullPreloadPCMByteLimit else {
             return (false, "estimated decoded PCM exceeds adjacent preload cap")
         }
-
         return (true, "within adjacent preload cap")
     }
 
