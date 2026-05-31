@@ -2396,19 +2396,27 @@ final class OrbisonicEngine {
         debugPlaybackGraphBuildCount += 1
 #endif
         debugTiming?.log("replace current source graph rebuild start", fileURL: loadedFile.url)
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] before detachPlayerNodes sceneInput=\(rendererScene.matrix.inputCount) sceneOutput=\(rendererScene.matrix.outputCount) sourceChannels=\(loadedFile.layout.channelCount)")
         detachPlayerNodes()
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after detachPlayerNodes")
 
         meteringService.setInactive(signal: .sonicSphere, channelCount: rendererScene.matrix.outputCount)
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after meteringService.setInactive")
 
-        if let rendererFormat = rendererOutputFormat(
+        let rebuildRendererFormat = rendererOutputFormat(
             sourceSampleRate: loadedFile.sampleRate,
             sourceChannelCount: loadedFile.layout.channelCount
-        ) {
+        )
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after rendererOutputFormat rendererFormat=\(rebuildRendererFormat.map { "ch=\($0.channelCount) sr=\($0.sampleRate)" } ?? "nil")")
+        if let rendererFormat = rebuildRendererFormat {
             configureRendererOutputGraph(format: rendererFormat)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after configureRendererOutputGraph")
             let player = AVAudioPlayerNode()
             playerNodes = [player]
             engine.attach(player)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after attach player; before connect")
             engine.connect(player, to: outputGainMixer, format: rendererFormat)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after connect player->outputGainMixer")
 
             AppLogger.shared.info(
                 category: "engine",
