@@ -1712,9 +1712,72 @@ final class LocalPlayerStabilizationTests: XCTestCase {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
 
+
         XCTAssertEqual(model.currentFileURL?.path, path)
         XCTAssertFalse(model.isLocalFileLoading)
         XCTAssertNil(model.pendingSessionQueueIndex)
+    }
+
+    @MainActor
+    func testNextTrackPreloadPreparesNextWhenBudgetAllows() async throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.directory.appendingPathComponent("first.wav")
+        let nextURL = fixture.directory.appendingPathComponent("next.wav")
+        try Self.writeSilentAudioFile(to: firstURL, frames: 48_000)
+        try Self.writeSilentAudioFile(to: nextURL, frames: 48_000)
+
+        let model = OrbisonicViewModel(
+            systemMemoryProvider: StubMemoryProvider(availableBytes: 16_000_000_000, totalBytes: 32_000_000_000)
+        )
+        model.setSourceModeForTesting(.filePlayback)
+        model.replaceLocalMusicQueueForTesting(
+            tracks: [Self.track(url: firstURL), Self.track(url: nextURL)],
+            currentIndex: 0,
+            selectedIndex: 0
+        )
+        try await model.loadQueueIndexForTesting(0, isPlaying: true)
+
+        model.preloadNextTrackEnabled = true
+        await model.awaitNextTrackPreloadForTesting()
+
+        XCTAssertTrue(model.hasPreparedLocalFileForTesting(path: nextURL.path))
+        XCTAssertEqual(model.nextTrackPreloadStatus, .ready)
+    }
+
+    @MainActor
+    func testNextTrackPreloadSkipsWhenMemoryIsTight() async throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.directory.appendingPathComponent("first.wav")
+        let nextURL = fixture.directory.appendingPathComponent("next.wav")
+        try Self.writeSilentAudioFile(to: firstURL, frames: 48_000)
+        try Self.writeSilentAudioFile(to: nextURL, frames: 48_000)
+
+        let model = OrbisonicViewModel(
+            systemMemoryProvider: StubMemoryProvider(availableBytes: 1_024, totalBytes: 32_000_000_000)
+        )
+        model.setSourceModeForTesting(.filePlayback)
+        model.replaceLocalMusicQueueForTesting(
+            tracks: [Self.track(url: firstURL), Self.track(url: nextURL)],
+            currentIndex: 0,
+            selectedIndex: 0
+        )
+        try await model.loadQueueIndexForTesting(0, isPlaying: true)
+
+        model.preloadNextTrackEnabled = true
+        await model.awaitNextTrackPreloadForTesting()
+
+        XCTAssertFalse(model.hasPreparedLocalFileForTesting(path: nextURL.path))
+        XCTAssertEqual(model.nextTrackPreloadStatus, .skippedLowMemory)
+    }
+}
+
+private struct StubMemoryProvider: SystemMemoryProviding {
+    let availableBytes: Int
+    let totalBytes: Int
+    func snapshot() -> SystemMemorySnapshot {
+        SystemMemorySnapshot(availableBytes: availableBytes, totalBytes: totalBytes)
     }
 }
 

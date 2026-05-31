@@ -3803,6 +3803,14 @@ final class OrbisonicViewModel: ObservableObject {
         localPreparedFileCache.containsValid(for: URL(fileURLWithPath: path))
     }
 
+    func awaitNextTrackPreloadForTesting() async {
+        await localPreparedFilePreloadTask?.value
+    }
+
+    func setPreloadStatusForTesting(_ status: NextTrackPreloadStatus) {
+        nextTrackPreloadStatus = status
+    }
+
     func hasCachedLocalDescriptorForTesting(path: String) -> Bool {
         localAudioDescriptorCache.containsValid(for: URL(fileURLWithPath: path))
     }
