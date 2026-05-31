@@ -226,6 +226,43 @@ final class ExistingUIFreezeTests: XCTestCase {
         XCTAssertTrue(vm.contains("setOutputDeviceAsync"))
     }
 
+    func testUserInitiatedRendererOutputSwitchIsNonBlockingOnMainActor() throws {
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        // The shared apply helper gains an async mode that hands the blocking
+        // CoreAudio syscall to the non-blocking begin-apply path.
+        let applyBlock = try block(
+            named: "private func applyOutputRouteIfAvailable",
+            endingBefore: "private func applyMonitorOutputRouteIfAvailable",
+            in: vm
+        )
+        XCTAssertTrue(applyBlock.contains("applyAsynchronously"))
+        XCTAssertTrue(applyBlock.contains("beginAsyncOutputDeviceApply"))
+
+        // The user-initiated renderer picker requests the async apply.
+        let rendererBlock = try block(
+            named: "func selectRendererOutputRoute",
+            endingBefore: "func chooseWatchFolder",
+            in: vm
+        )
+        XCTAssertTrue(rendererBlock.contains("applyAsynchronously: true"))
+
+        // Playback-precondition callers must stay synchronous so audio never
+        // starts before the output device is actually applied.
+        let prepareBlock = try block(
+            named: "private func prepareOutputForMusicPlayback",
+            endingBefore: "private func ensureOutputForAction",
+            in: vm
+        )
+        XCTAssertFalse(prepareBlock.contains("applyAsynchronously: true"))
+        let ensureBlock = try block(
+            named: "private func ensureOutputForAction",
+            endingBefore: "private func resolvedSelectedInputRoute",
+            in: vm
+        )
+        XCTAssertFalse(ensureBlock.contains("applyAsynchronously: true"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))

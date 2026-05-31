@@ -2349,7 +2349,7 @@ final class OrbisonicViewModel: ObservableObject {
         rendererOutputSelection = .device(route.uid)
         persistRendererOutputSelection()
         refreshRoutesIfNeeded(force: true)
-        applyOutputRouteIfAvailable(route, purpose: .renderer, label: route.deviceName)
+        applyOutputRouteIfAvailable(route, purpose: .renderer, label: route.deviceName, applyAsynchronously: true)
         reevaluatePureSphericalLosslessStateForCurrentFile()
         logOutputRoutingDebug(
             output: "Output 2 Renderer",
@@ -8790,7 +8790,8 @@ final class OrbisonicViewModel: ObservableObject {
     private func applyOutputRouteIfAvailable(
         _ route: OutputRouteInfo,
         purpose: OutputPurpose,
-        label: String
+        label: String,
+        applyAsynchronously: Bool = false
     ) -> Bool {
         let stateBefore = debugPlaybackStateSnapshot()
         let previousDevice = outputRoute.deviceName
@@ -8846,6 +8847,25 @@ final class OrbisonicViewModel: ObservableObject {
         }
 
         do {
+            if applyAsynchronously {
+                outputRoute = route
+                configureMonitorMeters()
+                syncRendererAudioRouting()
+                statusMessage = "\(purpose.title) output set to \(label)."
+                AppLogger.shared.notice(
+                    category: "route",
+                    "Selected \(purpose.lowerTitle) output label=\(label) device=\(route.deviceName) uid=\(route.uid) channels=\(route.outputChannelCount) sampleRate=\(formatSampleRate(route.nominalSampleRate)) (async apply)"
+                )
+                logOutputRoutingDebug(
+                    output: purpose.title,
+                    previousDevice: previousDevice,
+                    newDevice: route.deviceName,
+                    playbackStateBefore: stateBefore,
+                    graphRebuild: true
+                )
+                beginAsyncOutputDeviceApply(deviceID: route.deviceID, deviceName: route.deviceName)
+                return true
+            }
             try engine.setOutputDevice(route.deviceID)
             outputRoute = route
             configureMonitorMeters()
