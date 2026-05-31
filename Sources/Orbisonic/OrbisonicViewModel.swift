@@ -639,6 +639,7 @@ final class OrbisonicViewModel: ObservableObject {
     private static let rearAngleKey = "Orbisonic.rearAngle"
     private static let sphereOutputVolumeKey = "Orbisonic.sphereOutputVolumePercent"
     private static let sphereOutputSafetyLimitKey = "Orbisonic.sphereOutputSafetyLimitPercent"
+    private static let preloadNextTrackEnabledKey = "Orbisonic.preloadNextTrackEnabled"
     private static let diagnosticSpeakerChannelCount = 31
     private static let sourceRampDownDuration: TimeInterval = 0.04
     private static let sourcePrimeDuration: TimeInterval = 0.08
@@ -670,6 +671,23 @@ final class OrbisonicViewModel: ObservableObject {
         enableAdjacentLocalMetadataPreload && !isRunningUnitTests
     }
 
+    @Published var preloadNextTrackEnabled: Bool = OrbisonicViewModel.loadBool(
+        key: OrbisonicViewModel.preloadNextTrackEnabledKey,
+        defaultValue: false
+    ) {
+        didSet {
+            guard preloadNextTrackEnabled != oldValue else { return }
+            UserDefaults.standard.set(preloadNextTrackEnabled, forKey: Self.preloadNextTrackEnabledKey)
+            if preloadNextTrackEnabled {
+                scheduleAdjacentLocalFilePreloads(reason: "next-track preload enabled")
+            } else {
+                cancelLocalPreparedFilePreload(reason: "next-track preload disabled")
+                localPreparedFileCache.removeAll()
+                nextTrackPreloadStatus = .idle
+            }
+        }
+    }
+    @Published private(set) var nextTrackPreloadStatus: NextTrackPreloadStatus = .idle
     @Published var preset: SpatialPreset = .defaultPreset {
         didSet {
             applyPreset(preset)
@@ -910,6 +928,7 @@ final class OrbisonicViewModel: ObservableObject {
     private let preloadsAdjacentLocalMusicTracks: Bool
     private let preloadsAdjacentLocalMetadata: Bool
     private let adjacentFullPreloadPCMByteLimit: Int
+    private let systemMemoryProvider: SystemMemoryProviding
     private let rendererPresetStore = RendererPresetStore()
     private let roonNowPlayingReader = RoonNowPlayingReader()
     private let roonBridgeClient = RoonBridgeClient()
@@ -1007,6 +1026,7 @@ final class OrbisonicViewModel: ObservableObject {
         self.preloadsAdjacentLocalMusicTracks = Self.preloadsAdjacentLocalMusicTracksByDefault
         self.preloadsAdjacentLocalMetadata = Self.preloadsAdjacentLocalMetadataByDefault
         self.adjacentFullPreloadPCMByteLimit = Self.maxAdjacentFullPreloadPCMBytes
+        self.systemMemoryProvider = HostSystemMemoryProvider()
         self.localPreparedFileCache = LocalPreparedFileCache(
             capacity: Self.maxPreparedCacheEntries,
             maxBytes: Self.maxPreparedCacheBytes
@@ -1024,7 +1044,8 @@ final class OrbisonicViewModel: ObservableObject {
         preloadAdjacentLocalMusicTracks: Bool? = nil,
         preloadAdjacentLocalMetadata: Bool? = nil,
         adjacentFullPreloadPCMByteLimit: Int? = nil,
-        preparedCacheByteLimit: Int? = nil
+        preparedCacheByteLimit: Int? = nil,
+        systemMemoryProvider: SystemMemoryProviding? = nil
     ) {
         self.engine = OrbisonicEngine(audioGraphEnabled: !Self.isRunningUnitTests)
         self.localAudioLoader = { url, _ in
@@ -1037,6 +1058,7 @@ final class OrbisonicViewModel: ObservableObject {
             ?? preloadAdjacentLocalMusicTracks
             ?? Self.preloadsAdjacentLocalMetadataByDefault
         self.adjacentFullPreloadPCMByteLimit = adjacentFullPreloadPCMByteLimit ?? Self.maxAdjacentFullPreloadPCMBytes
+        self.systemMemoryProvider = systemMemoryProvider ?? HostSystemMemoryProvider()
         self.localPreparedFileCache = LocalPreparedFileCache(
             capacity: Self.maxPreparedCacheEntries,
             maxBytes: preparedCacheByteLimit ?? Self.maxPreparedCacheBytes
