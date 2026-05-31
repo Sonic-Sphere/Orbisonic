@@ -4089,6 +4089,17 @@ struct ContentView: View {
                         isOn: $model.isLocalGaplessCompressedTrimEnabled,
                         isEnabled: model.isLocalGaplessSchedulerEnabled
                     )
+
+                    settingsToggleRow(
+                        title: "Preload next track",
+                        isOn: $model.preloadNextTrackEnabled,
+                        helpText: "Decode the next queued track into memory so skips are instant. Works for any track; skipped automatically when memory is tight."
+                    )
+
+                    Text(model.nextTrackPreloadCaptionText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LabTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

@@ -6021,6 +6021,21 @@ final class OrbisonicViewModel: ObservableObject {
         return candidates
     }
 
+    var nextTrackPreloadCaptionText: String {
+        let summary = nextTrackPreloadWebSummary()
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB]
+        formatter.countStyle = .memory
+        var parts: [String] = ["Free memory: \(formatter.string(fromByteCount: Int64(summary.freeBytes)))"]
+        if let bytes = summary.nextEstimateBytes, bytes > 0 {
+            parts.append("Next \u{2248} \(formatter.string(fromByteCount: Int64(bytes)))")
+        }
+        if preloadNextTrackEnabled {
+            parts.append(nextTrackPreloadStatus.displayLabel)
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
     func nextTrackPreloadWebSummary() -> (nextLabel: String?, nextEstimateBytes: Int?, freeBytes: Int, totalBytes: Int) {
         let memory = systemMemoryProvider.snapshot()
         let next = adjacentLocalFilePreloadCandidates().first
