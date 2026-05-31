@@ -915,4 +915,19 @@ final class OrbisonicWebStateTests: XCTestCase {
             updatedAt: isPlaying ? "playing" : "paused"
         )
     }
+
+    @MainActor
+    func testWebStateExposesPreloadStatus() {
+        let model = OrbisonicViewModel()
+        model.preloadNextTrackEnabled = false
+        model.setPreloadStatusForTesting(.ready)
+
+        let state = model.webStateForTesting(controlEnabled: true)
+
+        XCTAssertEqual(state.preload.status, "ready")
+        XCTAssertEqual(state.preload.statusLabel, "Ready")
+        XCTAssertFalse(state.preload.enabled)
+        XCTAssertGreaterThan(state.preload.totalBytes, 0)
+    }
+
 }

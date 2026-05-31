@@ -6021,6 +6021,17 @@ final class OrbisonicViewModel: ObservableObject {
         return candidates
     }
 
+    func nextTrackPreloadWebSummary() -> (nextLabel: String?, nextEstimateBytes: Int?, freeBytes: Int, totalBytes: Int) {
+        let memory = systemMemoryProvider.snapshot()
+        let next = adjacentLocalFilePreloadCandidates().first
+        return (
+            nextLabel: next?.track.displayTitle,
+            nextEstimateBytes: next?.estimatedDecodedBytes,
+            freeBytes: memory.availableBytes,
+            totalBytes: memory.totalBytes
+        )
+    }
+
     private func estimatedPreparedPCMBytes(for track: LocalMusicTrack) -> Int? {
         PreparedPCMPolicy.estimatedDecodedPCMBytes(
             durationSeconds: track.duration,

@@ -223,9 +223,20 @@ struct OrbisonicWebState: Encodable {
         let progress: Double?
     }
 
+    struct Preload: Encodable {
+        let enabled: Bool
+        let status: String
+        let statusLabel: String
+        let nextLabel: String?
+        let nextEstimateBytes: Int?
+        let freeBytes: Int
+        let totalBytes: Int
+    }
+
     let generatedAt: String
     let controlEnabled: Bool
     let activity: Activity
+    let preload: Preload
     let urls: URLs
     let player: Player
     let input: Input
@@ -624,6 +635,7 @@ extension OrbisonicViewModel {
                 isIndeterminate: activity.isIndeterminate,
                 progress: activity.clampedProgress
             ),
+            preload: makeWebPreloadState(),
             urls: OrbisonicWebState.URLs(
                 publicPage: self.webPublicPageURL,
                 controlPage: controlEnabled ? OrbisonicWebServer.controlPageURL : nil
@@ -634,6 +646,19 @@ extension OrbisonicViewModel {
             localMusic: controlEnabled ? makeWebLocalMusicState() : nil,
             diagnostics: controlEnabled ? makeWebDiagnosticsState() : makeWebPublicDiagnosticsState(),
             build: controlEnabled ? makeWebBuildState() : makeWebPublicBuildState()
+        )
+    }
+
+    fileprivate func makeWebPreloadState() -> OrbisonicWebState.Preload {
+        let summary = nextTrackPreloadWebSummary()
+        return OrbisonicWebState.Preload(
+            enabled: preloadNextTrackEnabled,
+            status: nextTrackPreloadStatus.webToken,
+            statusLabel: nextTrackPreloadStatus.displayLabel,
+            nextLabel: summary.nextLabel,
+            nextEstimateBytes: summary.nextEstimateBytes,
+            freeBytes: summary.freeBytes,
+            totalBytes: summary.totalBytes
         )
     }
 
