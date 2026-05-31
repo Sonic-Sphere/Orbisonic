@@ -50,6 +50,23 @@ enum PreparedPCMPolicy {
     static let maxPreparedCacheEntries = 2
     static let maxPreparedCacheBytes = maxFullPreparedPCMBytes
 
+    /// Fraction of installed physical RAM a single full-prepare load may occupy.
+    static let fullPreparePhysicalMemoryFraction = 0.5
+    /// Floor so normal files are never refused on small or odd memory readings.
+    static let minFullPreparedPCMBytes = 512 * 1_024 * 1_024
+    /// Used when the memory reading is unavailable (total == 0).
+    static let unknownMemoryFullPreparedPCMBytes = 2 * 1_024 * 1_024 * 1_024
+
+    /// Dynamic full-prepare cap derived from installed RAM. Computed once when
+    /// the loader is constructed; installed physical memory does not change at runtime.
+    static func defaultMaxFullPreparedPCMBytes(
+        provider: SystemMemoryProviding = HostSystemMemoryProvider()
+    ) -> Int {
+        let total = provider.snapshot().totalBytes
+        guard total > 0 else { return unknownMemoryFullPreparedPCMBytes }
+        return max(Int(Double(total) * fullPreparePhysicalMemoryFraction), minFullPreparedPCMBytes)
+    }
+
     /// Returns true only when there is a concrete estimate that exceeds the cap.
     /// Unknown estimates (nil) return false so unknown-size files keep their
     /// existing behavior rather than being refused outright.
@@ -162,7 +179,7 @@ enum AudioFileLoaderError: LocalizedError {
 final class AudioFileLoader {
     private let maxFullPreparedPCMBytes: Int
 
-    init(maxFullPreparedPCMBytes: Int = PreparedPCMPolicy.maxFullPreparedPCMBytes) {
+    init(maxFullPreparedPCMBytes: Int = PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes()) {
         self.maxFullPreparedPCMBytes = maxFullPreparedPCMBytes
     }
 

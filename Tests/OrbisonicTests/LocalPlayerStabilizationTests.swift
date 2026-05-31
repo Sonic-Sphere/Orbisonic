@@ -699,6 +699,30 @@ final class LocalPlayerStabilizationTests: XCTestCase {
         )
     }
 
+    func testDefaultMaxFullPreparedPCMBytesScalesWithInstalledRAM() {
+        struct StubMemory: SystemMemoryProviding {
+            let total: Int
+            func snapshot() -> SystemMemorySnapshot {
+                SystemMemorySnapshot(availableBytes: total, totalBytes: total)
+            }
+        }
+        let eightGiB = 8 * 1_024 * 1_024 * 1_024
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: eightGiB)),
+            Int(Double(eightGiB) * PreparedPCMPolicy.fullPreparePhysicalMemoryFraction)
+        )
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: 0)),
+            PreparedPCMPolicy.unknownMemoryFullPreparedPCMBytes,
+            "Unknown reading must fall back, not refuse everything"
+        )
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: 100 * 1_024 * 1_024)),
+            PreparedPCMPolicy.minFullPreparedPCMBytes,
+            "Tiny machine still honors the floor"
+        )
+    }
+
     func testLoadRefusesFileExceedingInjectedPrepareBudget() throws {
         let fixture = try TemporaryLocalMusicFixture()
         defer { fixture.remove() }
