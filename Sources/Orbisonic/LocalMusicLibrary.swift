@@ -134,7 +134,7 @@ struct LocalMusicTrack: Identifiable, Codable, Equatable, Sendable {
 
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
-    var fallbackTitle: String { URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent }
+    var fallbackTitle: String { (fileName as NSString).deletingPathExtension }
 
     var displayTitle: String {
         title?.trimmedNilIfBlank ?? fallbackTitle
@@ -200,11 +200,11 @@ struct LocalMusicTrack: Identifiable, Codable, Equatable, Sendable {
     }
 
     var displayPath: String {
-        let folderPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        let folderPath = (path as NSString).deletingLastPathComponent
         guard let rootPath else { return folderPath }
 
         if folderPath == rootPath {
-            return URL(fileURLWithPath: rootPath).lastPathComponent
+            return (rootPath as NSString).lastPathComponent
         }
 
         let prefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
