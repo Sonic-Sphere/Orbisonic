@@ -72,6 +72,7 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
     case auro131 = "auro_13_1"
     case direct30
     case direct31
+    case directPassthrough = "direct_passthrough"
 
     static let allCases: [RendererRenderMode] = [
         .automatic,
@@ -123,6 +124,8 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
             "Direct 30"
         case .direct31:
             "Direct 30.1"
+        case .directPassthrough:
+            "Direct Passthrough"
         }
     }
 
@@ -146,6 +149,8 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
             "Auro 13.1 Static Bed"
         case .direct30, .direct31:
             "\(displayName) Bypass"
+        case .directPassthrough:
+            "Direct Passthrough"
         case .automatic:
             displayName
         default:
@@ -181,6 +186,8 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
             30
         case .direct31:
             31
+        case .directPassthrough:
+            nil
         }
     }
 
@@ -189,7 +196,7 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
         case .mono, .stereo, .binaural, .quad, .surround51,
              .auro80, .auro91, .auro101, .auro111714h, .auro111515hT, .auro121, .auro131:
             true
-        case .automatic, .direct30, .direct31:
+        case .automatic, .direct30, .direct31, .directPassthrough:
             false
         }
     }
@@ -204,7 +211,7 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
     }
 
     var isBypass: Bool {
-        self == .direct30 || self == .direct31
+        self == .direct30 || self == .direct31 || self == .directPassthrough
     }
 
     static let supportedInputCounts = [1, 2, 4, 6, 8, 10, 11, 12, 13, 14, 30, 31]
@@ -236,7 +243,7 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
         case 31:
             .direct31
         default:
-            nil
+            OrbisonicAudioLimits.supportsSourceChannelCount(inputCount) ? .directPassthrough : nil
         }
     }
 
@@ -1203,6 +1210,10 @@ final class FeyStaticBedRenderer {
             return matrix
         }
 
+        if mode == .directPassthrough {
+            return Self.bypassMatrix(inputCount: sourceLayout.channelCount)
+        }
+
         return buildMatrix(mode: mode)
     }
 
@@ -1297,6 +1308,8 @@ final class FeyStaticBedRenderer {
             return Self.bypassMatrix(inputCount: 30)
         case .direct31:
             return Self.bypassMatrix(inputCount: 31)
+        case .directPassthrough:
+            return .empty
         case .automatic:
             return .empty
         }
@@ -1422,6 +1435,8 @@ final class FeyStaticBedRenderer {
             return FeyInputLayout(mode: mode, channelLabels: (1...30).map { "Speaker \($0)" }, lfeChannelIndexes: [])
         case .direct31:
             return FeyInputLayout(mode: mode, channelLabels: (1...30).map { "Speaker \($0)" } + ["LFE"], lfeChannelIndexes: [30])
+        case .directPassthrough:
+            return nil
         }
     }
 
@@ -1730,10 +1745,13 @@ final class FeyStaticBedRenderer {
     }
 
     private static func bypassMatrix(inputCount: Int) -> RendererMatrix {
-        guard inputCount == 30 || inputCount == 31 else {
+        guard inputCount >= 1 else {
             return .empty
         }
 
+        // Map the first min(inputCount, 31) source channels 1:1 to the 31 outputs.
+        // Sources wider than the sphere drop their extra channels; when there are at
+        // least 31, the 31st source channel feeds the LFE/sub output (index 30).
         var outputMajor = Array(
             repeating: Array(repeating: 0.0, count: inputCount),
             count: Self.totalOutputs
@@ -1742,7 +1760,7 @@ final class FeyStaticBedRenderer {
             outputMajor[index][index] = 1.0
         }
 
-        let lfeInputIndexes: Set<Int> = inputCount == Self.totalOutputs ? [Self.subOutputIndex] : []
+        let lfeInputIndexes: Set<Int> = inputCount >= Self.totalOutputs ? [Self.subOutputIndex] : []
         return RendererMatrix.fromOutputMajor(
             gains: outputMajor,
             lfeInputIndexes: lfeInputIndexes,

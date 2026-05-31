@@ -7737,7 +7737,7 @@ final class OrbisonicViewModel: ObservableObject {
     ) {
         let requestedMode: RendererRenderMode
         switch nextMode {
-        case .direct30, .direct31:
+        case .direct30, .direct31, .directPassthrough:
             requestedMode = .automatic
         default:
             requestedMode = nextMode

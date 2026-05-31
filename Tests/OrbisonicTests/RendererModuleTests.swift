@@ -618,6 +618,53 @@ final class RendererModuleTests: XCTestCase {
         XCTAssertFalse(loaded.contains(where: { $0.id == "legacy" }))
     }
 
+    func testSceneModelMapsOversizedSourceToFirst31Passthrough() {
+        let scene = RendererMatrixBuilder.sceneModel(
+            for: SurroundLayoutDetector.fallbackLayout(for: 52),
+            preset: .sonicSphere30Point1,
+            renderMode: .automatic
+        )
+
+        // Renderer must engage at the source width (not collapse to a stereo monitor).
+        XCTAssertEqual(scene.renderMode, .directPassthrough)
+        XCTAssertEqual(scene.matrix.inputCount, 52)
+        XCTAssertEqual(scene.matrix.outputCount, 31)
+        XCTAssertTrue(scene.matrix.isBypass)
+        XCTAssertTrue(scene.validationMessages.isEmpty)
+
+        // First 31 source channels map 1:1; channels beyond 31 are dropped.
+        for inputIndex in 0..<52 {
+            for outputIndex in 0..<31 {
+                let expected = inputIndex == outputIndex ? 1.0 : 0.0
+                XCTAssertEqual(
+                    scene.matrix.gains[inputIndex][outputIndex], expected, accuracy: tolerance,
+                    "in \(inputIndex) out \(outputIndex)"
+                )
+            }
+        }
+
+        // The 31st source channel feeds the LFE/sub output.
+        XCTAssertTrue(scene.matrix.lfeInputIndexes.contains(FeyStaticBedRenderer.subOutputIndex))
+    }
+
+    func testSceneModelMapsUndersizedUnsupportedSourceToAvailableChannels() {
+        // 16 channels is not a named bed layout; map all 16 to the first 16 outputs, no LFE.
+        let scene = RendererMatrixBuilder.sceneModel(
+            for: SurroundLayoutDetector.fallbackLayout(for: 16),
+            preset: .sonicSphere30Point1,
+            renderMode: .automatic
+        )
+
+        XCTAssertEqual(scene.renderMode, .directPassthrough)
+        XCTAssertEqual(scene.matrix.inputCount, 16)
+        XCTAssertEqual(scene.matrix.outputCount, 31)
+        XCTAssertTrue(scene.matrix.isBypass)
+        XCTAssertTrue(scene.matrix.lfeInputIndexes.isEmpty)
+        for inputIndex in 0..<16 {
+            XCTAssertEqual(scene.matrix.gains[inputIndex][inputIndex], 1.0, accuracy: tolerance)
+        }
+    }
+
     private func scene(channelCount: Int) -> RendererSceneModel {
         RendererMatrixBuilder.sceneModel(
             for: SurroundLayoutDetector.fallbackLayout(for: channelCount),
