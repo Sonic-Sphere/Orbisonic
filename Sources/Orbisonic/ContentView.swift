@@ -2645,7 +2645,7 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if model.preloadNextTrackEnabled {
-                    Text("Next: \(model.nextTrackPreloadWebSummary().nextLabel ?? "\u{2014}") \u{2014} \(model.nextTrackPreloadStatus.displayLabel)")
+                    Text("Next: \(model.nextTrackPreloadDisplayLabel ?? "\u{2014}") \u{2014} \(model.nextTrackPreloadStatus.displayLabel)")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(LabTheme.textSoft)
                         .lineLimit(1)

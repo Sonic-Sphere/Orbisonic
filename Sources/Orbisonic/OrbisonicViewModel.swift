@@ -5668,12 +5668,16 @@ final class OrbisonicViewModel: ObservableObject {
         cancelLocalPreparedFilePreload(reason: reason)
         localPreparedFileCache.removeAll()
         localAudioDescriptorCache.removeAll()
+        if preloadNextTrackEnabled { nextTrackPreloadStatus = .idle }
         AppLogger.shared.info(category: "local-music", "Cleared local preload caches reason=\(reason)")
     }
 
     private func scheduleAdjacentLocalFilePreloads(reason: String) {
         cancelLocalPreparedFilePreload(reason: "reschedule adjacent preloads: \(reason)")
-        guard sourceMode == .filePlayback else { return }
+        guard sourceMode == .filePlayback else {
+            if preloadNextTrackEnabled { nextTrackPreloadStatus = .idle }
+            return
+        }
 
         let fullPCMPreloadEnabled = preloadNextTrackEnabled || preloadsAdjacentLocalMusicTracks
         if !fullPCMPreloadEnabled {
@@ -6036,12 +6040,31 @@ final class OrbisonicViewModel: ObservableObject {
         return parts.joined(separator: " \u{00B7} ")
     }
 
+    /// The next track in the queue, independent of cache state, for display
+    /// purposes. Unlike the preload candidates, this still resolves once the
+    /// track is prepared so chips keep showing the name in the `.ready` state.
+    private func nextQueueTrackForDisplay() -> LocalMusicTrack? {
+        guard let currentIndex = sessionQueueIndex,
+              sessionQueue.indices.contains(currentIndex),
+              sessionQueue.count > 1
+        else { return nil }
+        let nextIndex = (currentIndex + 1) % sessionQueue.count
+        let track = sessionQueue[nextIndex]
+        guard track.id != currentFileURL?.path else { return nil }
+        return track
+    }
+
+    /// Cheap next-track label for view bodies: no memory snapshot syscall.
+    var nextTrackPreloadDisplayLabel: String? {
+        nextQueueTrackForDisplay()?.displayTitle
+    }
+
     func nextTrackPreloadWebSummary() -> (nextLabel: String?, nextEstimateBytes: Int?, freeBytes: Int, totalBytes: Int) {
         let memory = systemMemoryProvider.snapshot()
-        let next = adjacentLocalFilePreloadCandidates().first
+        let next = nextQueueTrackForDisplay()
         return (
-            nextLabel: next?.track.displayTitle,
-            nextEstimateBytes: next?.estimatedDecodedBytes,
+            nextLabel: next?.displayTitle,
+            nextEstimateBytes: next.flatMap { estimatedPreparedPCMBytes(for: $0) },
             freeBytes: memory.availableBytes,
             totalBytes: memory.totalBytes
         )
