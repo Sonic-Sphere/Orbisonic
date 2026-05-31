@@ -325,7 +325,8 @@ final class OrbisonicEngine {
     func loadPreparedFile(
         _ loaded: LoadedAudioFile,
         debugTiming: DebugTimingContext? = nil,
-        localGaplessQueue: LocalGaplessEngineQueueSnapshot? = nil
+        localGaplessQueue: LocalGaplessEngineQueueSnapshot? = nil,
+        rendererScene: RendererSceneModel? = nil
     ) -> LoadedAudioFile {
         let commitStart = DispatchTime.now().uptimeNanoseconds
         debugTiming?.log("commit start", fileURL: loaded.url)
@@ -354,6 +355,11 @@ final class OrbisonicEngine {
         pausedPlaybackNeedsReschedule = false
         state = .ready
         debugTiming?.log("replace current source end", fileURL: loaded.url)
+
+        if let rendererScene {
+            self.rendererScene = rendererScene
+            self.rendererMode = rendererScene.renderMode
+        }
 
         if audioGraphEnabled {
             rebuildPlaybackGraph(for: loaded, debugTiming: debugTiming)

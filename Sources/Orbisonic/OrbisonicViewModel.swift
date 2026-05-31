@@ -5241,7 +5241,8 @@ final class OrbisonicViewModel: ObservableObject {
         _ = engine.loadPreparedFile(
             loaded,
             debugTiming: debugTiming,
-            localGaplessQueue: localGaplessQueueSnapshot(for: queueCommit)
+            localGaplessQueue: localGaplessQueueSnapshot(for: queueCommit),
+            rendererScene: committedRendererScene(for: loaded)
         )
         logLocalTransportTiming(
             debugTiming,
@@ -9965,6 +9966,29 @@ final class OrbisonicViewModel: ObservableObject {
             for: currentRendererLayout,
             preset: rendererPreset,
             renderMode: effectiveRendererRenderMode(forRequestedMode: requestedMode)
+        )
+    }
+
+    // Builds the scene for a freshly loaded file from ITS layout, not the
+    // currentRendererLayout (which still reflects loadedChannels from the
+    // previous track at commit time). Passed into engine.loadPreparedFile so
+    // the single graph rebuild uses the matching matrix instead of stalling
+    // in the stereo-monitor fallback on a channel-count mismatch.
+    private func committedRendererScene(for loaded: LoadedAudioFile) -> RendererSceneModel {
+        let layout = SurroundLayout(
+            name: loaded.metadata.layoutName.trimmedNilIfBlank ?? "\(loaded.layout.channelCount)-Channel Input",
+            channels: loaded.layout.channels
+        )
+        let mode = RendererModePolicy.effectiveRequestedMode(
+            requestedMode: .automatic,
+            inputChannelCount: layout.channelCount,
+            alwaysMono: rendererAlwaysMono,
+            twoChannelPreference: rendererTwoChannelPreference
+        )
+        return RendererMatrixBuilder.sceneModel(
+            for: layout,
+            preset: rendererPreset,
+            renderMode: mode
         )
     }
 
