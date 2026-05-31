@@ -17,6 +17,23 @@ module_cache_path="$repo_root/.build/module-cache"
 plist_path="$bundle_path/Contents/Info.plist"
 plist_buddy="/usr/libexec/PlistBuddy"
 
+# Stable code-signing identity. A dedicated keychain (created once, headless)
+# keeps the cdhash / Designated Requirement constant across rebuilds, so macOS
+# TCC permissions (mic, files) persist instead of resetting on every build.
+# Falls back to ad-hoc signing if the keychain/identity is absent.
+sign_id="${ORBISONIC_SIGN_IDENTITY:-Orbisonic Local Signing}"
+sign_kc="${ORBISONIC_SIGN_KEYCHAIN:-$HOME/Library/Keychains/orbisonic-signing.keychain-db}"
+sign_kc_pass="${ORBISONIC_SIGN_KEYCHAIN_PASSWORD:-orbisonic-signing}"
+if [ -f "$sign_kc" ] \
+   && security unlock-keychain -p "$sign_kc_pass" "$sign_kc" 2>/dev/null \
+   && security find-identity "$sign_kc" 2>/dev/null | grep -qF "$sign_id"; then
+  codesign_sign=(--sign "$sign_id" --keychain "$sign_kc")
+  echo "Signing with stable identity: $sign_id"
+else
+  codesign_sign=(--sign -)
+  echo "Stable signing identity not found; using ad-hoc signing (TCC permissions will reset)." >&2
+fi
+
 set_plist_string() {
   local key="$1"
   local value="$2"
@@ -99,7 +116,7 @@ for tool in ffmpeg ffprobe; do
   if [ -x "$tools_src_dir/$tool" ]; then
     cp "$tools_src_dir/$tool" "$tools_target_dir/$tool"
     chmod +x "$tools_target_dir/$tool"
-    codesign --force --sign - "$tools_target_dir/$tool"
+    codesign --force "${codesign_sign[@]}" "$tools_target_dir/$tool"
   else
     echo "Warning: missing helper tool $tools_src_dir/$tool; MKV/MKA playback will fail." >&2
   fi
@@ -139,7 +156,7 @@ if ! "$plist_buddy" -c "Set :LSEnvironment:SWIFT_IS_CURRENT_EXECUTOR_LEGACY_MODE
 fi
 
 xattr -cr "$bundle_path"
-codesign --force --deep --sign - "$bundle_path"
+codesign --force --deep "${codesign_sign[@]}" "$bundle_path"
 codesign --verify --deep --strict --verbose=2 "$bundle_path"
 plutil -lint "$plist_path"
 
