@@ -198,6 +198,90 @@ final class ExistingUIFreezeTests: XCTestCase {
         XCTAssertFalse(rendererMeterBlock.contains("SonicSphereTopology.outputSpeakers(for: scene.preset"))
     }
 
+    func testRefreshedOutputDeviceApplyIsNonBlockingOnMainActor() throws {
+        let engine = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        // Engine exposes an async apply that isolates the blocking CoreAudio
+        // syscall on a dedicated serial queue via a continuation.
+        XCTAssertTrue(engine.contains("func setOutputDeviceAsync"))
+        XCTAssertTrue(engine.contains("outputDeviceApplyQueue"))
+        XCTAssertTrue(
+            engine.contains("withCheckedContinuation") || engine.contains("withCheckedThrowingContinuation"))
+        let asyncBlock = try block(named: "func setOutputDeviceAsync", endingBefore: "func stop()", in: engine)
+        XCTAssertTrue(asyncBlock.contains("outputDeviceApplyQueue"))
+        XCTAssertTrue(asyncBlock.contains(".async {"))
+        XCTAssertTrue(asyncBlock.contains("AudioUnitSetProperty"))
+
+        // The route-refresh application path must not block the MainActor on the
+        // synchronous setOutputDevice anymore.
+        let refreshBlock = try block(
+            named: "private func applyRouteRefreshSnapshot",
+            endingBefore: "private func publishTuning",
+            in: vm
+        )
+        XCTAssertFalse(refreshBlock.contains("try engine.setOutputDevice(refreshedActiveRoute.deviceID)"))
+        XCTAssertTrue(refreshBlock.contains("planOutputDeviceApply"))
+        XCTAssertTrue(refreshBlock.contains("beginAsyncOutputDeviceApply"))
+        XCTAssertTrue(vm.contains("setOutputDeviceAsync"))
+    }
+
+    func testUserInitiatedRendererOutputSwitchIsNonBlockingOnMainActor() throws {
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        // The shared apply helper gains an async mode that hands the blocking
+        // CoreAudio syscall to the non-blocking begin-apply path.
+        let applyBlock = try block(
+            named: "private func applyOutputRouteIfAvailable",
+            endingBefore: "private func applyMonitorOutputRouteIfAvailable",
+            in: vm
+        )
+        XCTAssertTrue(applyBlock.contains("applyAsynchronously"))
+        XCTAssertTrue(applyBlock.contains("beginAsyncOutputDeviceApply"))
+
+        // The user-initiated renderer picker requests the async apply.
+        let rendererBlock = try block(
+            named: "func selectRendererOutputRoute",
+            endingBefore: "func chooseWatchFolder",
+            in: vm
+        )
+        XCTAssertTrue(rendererBlock.contains("applyAsynchronously: true"))
+
+        // Playback-precondition callers must stay synchronous so audio never
+        // starts before the output device is actually applied.
+        let prepareBlock = try block(
+            named: "private func prepareOutputForMusicPlayback",
+            endingBefore: "private func ensureOutputForAction",
+            in: vm
+        )
+        XCTAssertFalse(prepareBlock.contains("applyAsynchronously: true"))
+        let ensureBlock = try block(
+            named: "private func ensureOutputForAction",
+            endingBefore: "private func resolvedSelectedInputRoute",
+            in: vm
+        )
+        XCTAssertFalse(ensureBlock.contains("applyAsynchronously: true"))
+    }
+
+    func testNextTrackPreloadIsWiredAndNextOnly() throws {
+        let vm = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+
+        XCTAssertTrue(vm.contains("preloadNextTrackEnabled"))
+        XCTAssertTrue(vm.contains("Orbisonic.preloadNextTrackEnabled"))
+
+        XCTAssertTrue(vm.contains("planNextTrackPreload"))
+
+        let scheduleBlock = try block(
+            named: "private func scheduleAdjacentLocalFilePreloads",
+            endingBefore: "private func scheduleAdjacentLocalMetadataPreloads",
+            in: vm
+        )
+        XCTAssertTrue(scheduleBlock.contains("Array(candidates.prefix(1))"))
+
+        let cv = try source("Sources/Orbisonic/ContentView.swift")
+        XCTAssertTrue(cv.contains("$model.preloadNextTrackEnabled"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))

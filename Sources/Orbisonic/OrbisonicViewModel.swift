@@ -1,5 +1,6 @@
 import AudioContracts
 import AudioCore
+import AudioImport
 import AppKit
 import AVFoundation
 import Foundation
@@ -227,7 +228,7 @@ private struct LocalPreparedFileCache {
     }
 
     private let capacity: Int
-    private let maxBytes: Int
+    private var maxBytes: Int
     private var entries: [String: Entry] = [:]
     private var order: UInt64 = 0
     private var totalBytes = 0
@@ -235,6 +236,11 @@ private struct LocalPreparedFileCache {
     init(capacity: Int, maxBytes: Int) {
         self.capacity = max(0, capacity)
         self.maxBytes = max(0, maxBytes)
+    }
+
+    mutating func updateMaxBytes(_ newValue: Int) {
+        maxBytes = max(0, newValue)
+        evictIfNeeded()
     }
 
     mutating func takeValid(for url: URL) -> LoadedAudioFile? {
@@ -626,6 +632,7 @@ final class OrbisonicViewModel: ObservableObject {
     private static let maxAdjacentMetadataCacheEntries = 16
     private static let maxFullPreparedPCMBytes = PreparedPCMPolicy.maxFullPreparedPCMBytes
     private static let maxAdjacentFullPreloadPCMBytes = PreparedPCMPolicy.maxAdjacentFullPreloadPCMBytes
+    private static let nextTrackPreloadAvailableRAMFraction = 0.5
     private static let maxPreparedCacheEntries = PreparedPCMPolicy.maxPreparedCacheEntries
     private static let maxPreparedCacheBytes = PreparedPCMPolicy.maxPreparedCacheBytes
     private static let diagnosticsLogTailMaxBytes = 256 * 1024
@@ -638,6 +645,7 @@ final class OrbisonicViewModel: ObservableObject {
     private static let rearAngleKey = "Orbisonic.rearAngle"
     private static let sphereOutputVolumeKey = "Orbisonic.sphereOutputVolumePercent"
     private static let sphereOutputSafetyLimitKey = "Orbisonic.sphereOutputSafetyLimitPercent"
+    private static let preloadNextTrackEnabledKey = "Orbisonic.preloadNextTrackEnabled"
     private static let diagnosticSpeakerChannelCount = 31
     private static let sourceRampDownDuration: TimeInterval = 0.04
     private static let sourcePrimeDuration: TimeInterval = 0.08
@@ -669,6 +677,25 @@ final class OrbisonicViewModel: ObservableObject {
         enableAdjacentLocalMetadataPreload && !isRunningUnitTests
     }
 
+    @Published var preloadNextTrackEnabled: Bool = OrbisonicViewModel.loadBool(
+        key: OrbisonicViewModel.preloadNextTrackEnabledKey,
+        defaultValue: false
+    ) {
+        didSet {
+            guard preloadNextTrackEnabled != oldValue else { return }
+            UserDefaults.standard.set(preloadNextTrackEnabled, forKey: Self.preloadNextTrackEnabledKey)
+            if preloadNextTrackEnabled {
+                localPreparedFileCache.updateMaxBytes(systemMemoryProvider.snapshot().totalBytes)
+                scheduleAdjacentLocalFilePreloads(reason: "next-track preload enabled")
+            } else {
+                cancelLocalPreparedFilePreload(reason: "next-track preload disabled")
+                localPreparedFileCache.removeAll()
+                localPreparedFileCache.updateMaxBytes(Self.maxPreparedCacheBytes)
+                nextTrackPreloadStatus = .idle
+            }
+        }
+    }
+    @Published private(set) var nextTrackPreloadStatus: NextTrackPreloadStatus = .idle
     @Published var preset: SpatialPreset = .defaultPreset {
         didSet {
             applyPreset(preset)
@@ -800,15 +827,24 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var dolbyReferencePlayerSnapshot: DolbyReferencePlayerControllerSnapshot = .idle
     @Published private(set) var currentAtmosDRPTrack: LocalMusicTrack?
     @Published private(set) var localMusicSettings = LocalMusicSettings()
-    @Published private(set) var localMusicTracks: [LocalMusicTrack] = []
+    @Published private(set) var localMusicTracks: [LocalMusicTrack] = [] {
+        didSet { invalidateSortedLocalMusicTracksCache() }
+    }
     @Published private(set) var localMusicPlaylists: [LocalMusicPlaylist] = []
     @Published var selectedLibraryTrackID: String?
     @Published var selectedLocalMusicPlaylistID: String?
     @Published var localMusicSearchText = ""
     @Published var localMusicSortMode: PlaylistSortMode = OrbisonicViewModel.loadLocalMusicSortMode() {
         didSet {
+            invalidateSortedLocalMusicTracksCache()
             UserDefaults.standard.set(localMusicSortMode.rawValue, forKey: Self.localMusicSortModeKey)
             AppLogger.shared.notice(category: "local-music", "Sort mode set to \(localMusicSortMode.rawValue)")
+        }
+    }
+    @Published var localMusicChannelFilter: Int = 0 {
+        didSet {
+            guard oldValue != localMusicChannelFilter else { return }
+            AppLogger.shared.notice(category: "local-music", "Channel filter set to \(localMusicChannelFilter)")
         }
     }
     @Published var atmosDRPOutputLayout: DolbyReferencePlayerOutputLayout = OrbisonicViewModel.loadAtmosDRPOutputLayout() {
@@ -875,7 +911,18 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var isRoonTransportCommandInFlight = false
     @Published private(set) var isLiveMonitorTransitioning = false
     @Published private(set) var sourceSwitchTargetMode: SourceMode?
-    @Published private(set) var isLocalFileLoading = false
+    @Published private(set) var isLocalFileLoading = false {
+        didSet {
+            if !isLocalFileLoading { endLoadActivityIfLoading() }
+        }
+    }
+    @Published private(set) var activity: PlaybackActivity = .idle
+
+    /// Output device currently being pushed to CoreAudio by an in-flight
+    /// async apply, if any. Guards against overlapping device switches.
+    private var outputDeviceApplyInFlightID: AudioDeviceID?
+    /// Last output device id successfully applied via the async refresh path.
+    private var lastAppliedOutputDeviceID: AudioDeviceID = 0
 
     let meterStore = ChannelMeterStore()
     let monitorMeterStore = ChannelMeterStore()
@@ -887,11 +934,13 @@ final class OrbisonicViewModel: ObservableObject {
     private let localMusicLibrary: LocalMusicLibrary
     private var localMusicBaseTracks: [LocalMusicTrack] = []
     private var localMusicMetadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+    private var localMusicMetadataScannedTrackIDs: Set<String> = []
     private var localMusicMetadataEnricher: LocalMusicMetadataEnriching?
     private let preloadsFirstLocalMusicTrack: Bool
     private let preloadsAdjacentLocalMusicTracks: Bool
     private let preloadsAdjacentLocalMetadata: Bool
     private let adjacentFullPreloadPCMByteLimit: Int
+    private let systemMemoryProvider: SystemMemoryProviding
     private let rendererPresetStore = RendererPresetStore()
     private let roonNowPlayingReader = RoonNowPlayingReader()
     private let roonBridgeClient = RoonBridgeClient()
@@ -923,6 +972,7 @@ final class OrbisonicViewModel: ObservableObject {
     private var rendererDiagnosticsMonitorDownmixAvailable = false
     private var localMusicScanTask: Task<Void, Never>?
     private var localMusicMetadataEnrichmentTask: Task<Void, Never>?
+    private var localMusicMatroskaRepairTask: Task<Void, Never>?
     private var localPlayNowTask: Task<Void, Never>?
     private var localPlayNowSequence: UInt64 = 0
     private var localFileLoadTask: Task<Void, Never>?
@@ -989,6 +1039,7 @@ final class OrbisonicViewModel: ObservableObject {
         self.preloadsAdjacentLocalMusicTracks = Self.preloadsAdjacentLocalMusicTracksByDefault
         self.preloadsAdjacentLocalMetadata = Self.preloadsAdjacentLocalMetadataByDefault
         self.adjacentFullPreloadPCMByteLimit = Self.maxAdjacentFullPreloadPCMBytes
+        self.systemMemoryProvider = HostSystemMemoryProvider()
         self.localPreparedFileCache = LocalPreparedFileCache(
             capacity: Self.maxPreparedCacheEntries,
             maxBytes: Self.maxPreparedCacheBytes
@@ -1006,7 +1057,8 @@ final class OrbisonicViewModel: ObservableObject {
         preloadAdjacentLocalMusicTracks: Bool? = nil,
         preloadAdjacentLocalMetadata: Bool? = nil,
         adjacentFullPreloadPCMByteLimit: Int? = nil,
-        preparedCacheByteLimit: Int? = nil
+        preparedCacheByteLimit: Int? = nil,
+        systemMemoryProvider: SystemMemoryProviding? = nil
     ) {
         self.engine = OrbisonicEngine(audioGraphEnabled: !Self.isRunningUnitTests)
         self.localAudioLoader = { url, _ in
@@ -1019,6 +1071,7 @@ final class OrbisonicViewModel: ObservableObject {
             ?? preloadAdjacentLocalMusicTracks
             ?? Self.preloadsAdjacentLocalMetadataByDefault
         self.adjacentFullPreloadPCMByteLimit = adjacentFullPreloadPCMByteLimit ?? Self.maxAdjacentFullPreloadPCMBytes
+        self.systemMemoryProvider = systemMemoryProvider ?? HostSystemMemoryProvider()
         self.localPreparedFileCache = LocalPreparedFileCache(
             capacity: Self.maxPreparedCacheEntries,
             maxBytes: preparedCacheByteLimit ?? Self.maxPreparedCacheBytes
@@ -1254,7 +1307,7 @@ final class OrbisonicViewModel: ObservableObject {
     func refreshWebPageURLs() {
         let urls = OrbisonicWebServer.urlSet(controlToken: webControlToken)
         webPublicPageURL = urls.publicURL
-        webControlPageURL = ""
+        webControlPageURL = urls.controlURL
     }
 
     var webControlTokenForLocalServer: String {
@@ -2331,7 +2384,7 @@ final class OrbisonicViewModel: ObservableObject {
         rendererOutputSelection = .device(route.uid)
         persistRendererOutputSelection()
         refreshRoutesIfNeeded(force: true)
-        applyOutputRouteIfAvailable(route, purpose: .renderer, label: route.deviceName)
+        applyOutputRouteIfAvailable(route, purpose: .renderer, label: route.deviceName, applyAsynchronously: true)
         reevaluatePureSphericalLosslessStateForCurrentFile()
         logOutputRoutingDebug(
             output: "Output 2 Renderer",
@@ -2423,7 +2476,7 @@ final class OrbisonicViewModel: ObservableObject {
             ? "Local music metadata enhancement enabled."
             : "Local music metadata enhancement disabled."
         if enhancesMetadata {
-            scheduleLocalMusicMetadataEnhancement(reason: "setting enabled")
+            scheduleLocalMusicMetadataEnhancement(reason: "setting enabled", force: true)
         } else {
             localMusicMetadataEnrichmentTask?.cancel()
             localMusicMetadataEnrichmentTask = nil
@@ -2450,6 +2503,9 @@ final class OrbisonicViewModel: ObservableObject {
         localMusicBaseTracks = result.tracks
         localMusicMetadataOverlays = localMusicMetadataOverlays.filter { overlay in
             result.tracks.contains { $0.id == overlay.key }
+        }
+        localMusicMetadataScannedTrackIDs = localMusicMetadataScannedTrackIDs.filter { id in
+            result.tracks.contains { $0.id == id }
         }
         refreshEffectiveLocalMusicTracks()
         localMusicPlaylists = orderedLocalMusicPlaylistsAfterScan(result.playlists)
@@ -2485,7 +2541,7 @@ final class OrbisonicViewModel: ObservableObject {
             "Scanned watchFolders=\(localMusicSettings.watchFolderPaths.count) explicitPlaylists=\(localMusicSettings.m3uPlaylistPaths.count) tracks=\(localMusicTracks.count) playlists=\(localMusicPlaylists.count) skippedMissing=\(result.skippedMissingFiles)"
         )
         preloadFirstLocalMusicTrackIfNeeded(reason: "local music scan completed")
-        scheduleLocalMusicMetadataEnhancement(reason: "local music scan completed")
+        scheduleLocalMusicMetadataEnhancement(reason: "local music scan completed", force: true)
     }
 
     func loadSelectedLocalMusicTrack() {
@@ -3398,7 +3454,8 @@ final class OrbisonicViewModel: ObservableObject {
             return "No audio files scanned yet."
         }
 
-        if localMusicSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let hasSearch = !localMusicSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !hasSearch && localMusicChannelFilter == 0 {
             return "\(total) tracks."
         }
 
@@ -3451,9 +3508,16 @@ final class OrbisonicViewModel: ObservableObject {
         return URL(string: coverURL)
     }
 
+    var availableLocalMusicChannelCounts: [Int] {
+        Array(Set(localMusicTracks.map { $0.channelCount }.filter { $0 > 0 })).sorted()
+    }
+
     var visibleLocalMusicTracks: [LocalMusicTrack] {
         let query = localMusicSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sortedTracks = sortedLocalMusicTracks
+        let channelFilter = localMusicChannelFilter
+        let sortedTracks = channelFilter > 0
+            ? sortedLocalMusicTracks.filter { $0.channelCount == channelFilter }
+            : sortedLocalMusicTracks
         guard !query.isEmpty else { return sortedTracks }
 
         return sortedTracks.filter { track in track.matches(query) }
@@ -3617,6 +3681,10 @@ final class OrbisonicViewModel: ObservableObject {
         clearPendingLocalPresentation()
     }
 
+    func setActivityForTesting(_ activity: PlaybackActivity) {
+        self.activity = activity
+    }
+
     func setSourceModeForTesting(_ mode: SourceMode) {
         sourceMode = mode
         if mode != .spotify {
@@ -3743,6 +3811,14 @@ final class OrbisonicViewModel: ObservableObject {
         localPreparedFileCache.containsValid(for: URL(fileURLWithPath: path))
     }
 
+    func awaitNextTrackPreloadForTesting() async {
+        await localPreparedFilePreloadTask?.value
+    }
+
+    func setPreloadStatusForTesting(_ status: NextTrackPreloadStatus) {
+        nextTrackPreloadStatus = status
+    }
+
     func hasCachedLocalDescriptorForTesting(path: String) -> Bool {
         localAudioDescriptorCache.containsValid(for: URL(fileURLWithPath: path))
     }
@@ -3786,8 +3862,28 @@ final class OrbisonicViewModel: ObservableObject {
     }
 #endif
 
+    private var cachedSortedLocalMusicTracks: [LocalMusicTrack]?
+
+    #if DEBUG
+    private(set) var localMusicSortComputeCountForTesting = 0
+    #endif
+
+    private func invalidateSortedLocalMusicTracksCache() {
+        cachedSortedLocalMusicTracks = nil
+    }
+
+    // Memoized: sorting the whole library is expensive and this is read on every
+    // SwiftUI body eval and web poll. Invalidated when tracks or sort mode change.
     private var sortedLocalMusicTracks: [LocalMusicTrack] {
-        localMusicTracks.sorted(by: localMusicComparator)
+        if let cached = cachedSortedLocalMusicTracks {
+            return cached
+        }
+        let sorted = localMusicTracks.sorted(by: localMusicComparator)
+        cachedSortedLocalMusicTracks = sorted
+        #if DEBUG
+        localMusicSortComputeCountForTesting += 1
+        #endif
+        return sorted
     }
 
     @discardableResult
@@ -3836,6 +3932,7 @@ final class OrbisonicViewModel: ObservableObject {
         )
         statusMessage = requestImmediateStatus(request)
         isLocalFileLoading = true
+        activity = PlaybackActivity(phase: .probing, detail: localLoadActivityName(for: request))
         publishPendingLocalIntent(for: request)
         logLocalTransportTiming(
             debugTiming,
@@ -3895,6 +3992,21 @@ final class OrbisonicViewModel: ObservableObject {
 
     private func requestTrackTitle(_ request: LocalFileLoadRequest) -> String? {
         request.queueCommit.flatMap { queueTrack(for: $0.index)?.displayTitle }
+    }
+
+    private func localLoadActivityName(for request: LocalFileLoadRequest) -> String {
+        requestTrackTitle(request) ?? request.url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Reset activity to idle only if it currently reflects a load phase, so a
+    /// concurrent output-device switch overlay is never clobbered.
+    private func endLoadActivityIfLoading() {
+        switch activity.phase {
+        case .probing, .decoding, .converting, .preparing:
+            activity = .idle
+        case .idle, .switchingOutput:
+            break
+        }
     }
 
     private func requestImmediateStatus(_ request: LocalFileLoadRequest) -> String {
@@ -4556,6 +4668,99 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
+    private func managedImportCacheDirectory() throws -> URL {
+        let base = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("Orbisonic/ManagedImports", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
+
+    private func managedImportCacheKey(originalURL: URL, targetSampleRateHertz: Double) -> String {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: originalURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? -1
+        let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let seed = "\(originalURL.path)|\(size)|\(Int64(mtime.rounded()))|\(Int(targetSampleRateHertz.rounded()))"
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in seed.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(format: "%016llx-%d", hash, Int(targetSampleRateHertz.rounded()))
+    }
+
+    // Off-rate production files cannot stream through the fixed-rate Dante
+    // session, so prepare (or reuse) a managed session-rate CAF copy and decode
+    // that instead. Returns the original URL unchanged when no conversion is
+    // needed (renderer not selected, or rates already match within 1 Hz).
+    private func resolveManagedSessionRateFile(
+        originalURL: URL,
+        sourceSampleRate: Double
+    ) async throws -> URL {
+        guard rendererOutputSelection != .none else { return originalURL }
+        let targetHertz = rendererOutputRoute.nominalSampleRate
+        guard targetHertz > 0, sourceSampleRate > 0 else { return originalURL }
+        guard abs(sourceSampleRate - targetHertz) > 1.0 else { return originalURL }
+
+        let targetRate = try AudioSampleRate(hertz: targetHertz)
+        let cacheDir = try managedImportCacheDirectory()
+        let key = managedImportCacheKey(originalURL: originalURL, targetSampleRateHertz: targetHertz)
+        let managedURL = cacheDir.appendingPathComponent("\(key).caf")
+
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: managedURL.path),
+           let size = (attrs[.size] as? NSNumber)?.int64Value, size > 0 {
+            return managedURL
+        }
+
+        let displayName = originalURL.lastPathComponent
+        statusMessage = "Converting \(displayName) to \(formatSampleRate(targetHertz)) for production\u{2026}"
+
+        let sessionFormat = AudioSessionFormat(
+            sampleRate: targetRate,
+            maxFramesPerBlock: 512,
+            dante: DanteOutputFormat(physicalChannelCount: 32, sampleRate: targetRate),
+            desktop: DesktopOutputFormat(sampleRate: targetRate)
+        )
+
+        // AVFoundation cannot open Matroska containers, so ManagedAssetImporter
+        // (which reads via AVAudioFile) fails an off-rate MKV/MKA with
+        // kAudioFileUnsupportedFileTypeError. Demux the chosen stream to a
+        // temporary CAF first -- the same ffmpeg path used for on-rate Matroska
+        // playback -- then resample that CAF to the session rate. The demux runs
+        // off the main actor so the ffmpeg subprocess never blocks the UI.
+        var importSourceURL = originalURL
+        var temporaryDemuxURL: URL?
+        if MatroskaFLACSupport.isMatroska(originalURL) {
+            let demuxedURL = try await Task.detached(priority: .userInitiated) {
+                let streamInfo = try MatroskaAudioProbe().probe(url: originalURL)
+                return try MatroskaFLACDemuxer().demuxToCAF(url: originalURL, streamInfo: streamInfo)
+            }.value
+            importSourceURL = demuxedURL
+            temporaryDemuxURL = demuxedURL
+        }
+        defer {
+            if let temporaryDemuxURL {
+                try? FileManager.default.removeItem(at: temporaryDemuxURL)
+            }
+        }
+
+        let originalPath = importSourceURL.path
+        let managedPath = managedURL.path
+        let importTask = Task.detached(priority: .userInitiated) {
+            try ManagedAssetImporter().importAsset(
+                originalPath: originalPath,
+                managedPath: managedPath,
+                managedAssetID: key,
+                targetSessionFormat: sessionFormat
+            )
+        }
+        let descriptor = try await importTask.value
+        return URL(fileURLWithPath: descriptor.managedPath)
+    }
+
     private func startLocalFileLoad(_ request: LocalFileLoadRequest) {
         guard isCurrentLocalPlaybackGeneration(request.generation) else {
             clearPendingLocalPresentation(generation: request.generation)
@@ -4576,6 +4781,7 @@ final class OrbisonicViewModel: ObservableObject {
         }
         pendingSessionQueueIndex = request.queueCommit?.index
         isLocalFileLoading = true
+        activity = PlaybackActivity(phase: .decoding, detail: localLoadActivityName(for: request))
         statusMessage = requestImmediateStatus(request)
         let audioLoader = localAudioLoader
         logLocalTransportTiming(
@@ -4680,8 +4886,29 @@ final class OrbisonicViewModel: ObservableObject {
                     return
                 }
 
-                if Self.enableStreamingLocalPlayback,
+                var effectiveURL = request.url
+                if let descriptor = localDescriptor {
+                    do {
+                        effectiveURL = try await self.resolveManagedSessionRateFile(
+                            originalURL: request.url,
+                            sourceSampleRate: descriptor.sourceSampleRate
+                        )
+                    } catch is CancellationError {
+                        self.completeLocalFileLoad(request: request, result: .failure(CancellationError()))
+                        return
+                    } catch {
+                        self.completeLocalFileLoad(request: request, result: .failure(error))
+                        return
+                    }
+                }
+
+                let mustStreamForFullSpatial = StreamingLocalPlaybackPolicy
+                    .requiresStreamingForFullSpatialRender(
+                        durationFrames: localDescriptor?.durationFrames
+                    )
+                if Self.enableStreamingLocalPlayback || mustStreamForFullSpatial,
                    request.autoplay,
+                   effectiveURL == request.url,
                    self.queuedLocalFileLoadRequest == nil,
                    let descriptor = localDescriptor {
                     do {
@@ -4714,7 +4941,7 @@ final class OrbisonicViewModel: ObservableObject {
                     fileURL: request.url
                 )
                 let decodeTask = Task.detached(priority: .utility) {
-                    try audioLoader(request.url, request.debugTiming)
+                    try audioLoader(effectiveURL, request.debugTiming)
                 }
                 self.localFileDecodeTask = decodeTask
                 self.localFileDecodeRequestID = request.id
@@ -4753,7 +4980,8 @@ final class OrbisonicViewModel: ObservableObject {
                     )
                     return
                 }
-                self.completeLocalFileLoad(request: request, result: .success(loaded))
+                let identityLoaded = effectiveURL == request.url ? loaded : loaded.withURL(request.url)
+                self.completeLocalFileLoad(request: request, result: .success(identityLoaded))
             } catch {
                 guard let self else { return }
                 self.clearLocalFileDecodeTask(for: request.id)
@@ -5041,7 +5269,8 @@ final class OrbisonicViewModel: ObservableObject {
         _ = engine.loadPreparedFile(
             loaded,
             debugTiming: debugTiming,
-            localGaplessQueue: localGaplessQueueSnapshot(for: queueCommit)
+            localGaplessQueue: localGaplessQueueSnapshot(for: queueCommit),
+            rendererScene: committedRendererScene(for: loaded)
         )
         logLocalTransportTiming(
             debugTiming,
@@ -5226,6 +5455,7 @@ final class OrbisonicViewModel: ObservableObject {
         try await engine.startStreaming(
             source: source,
             descriptor: descriptor,
+            rendererScene: committedRendererScene(for: descriptor.channelLayout),
             debugTiming: request.debugTiming
         )
 
@@ -5407,6 +5637,11 @@ final class OrbisonicViewModel: ObservableObject {
         localMusicSettings = Self.normalizedLocalMusicSettings(database.settings)
         localMusicBaseTracks = database.tracks
         localMusicMetadataOverlays = database.metadataOverlays
+        if database.metadataScannedTrackIDs.isEmpty, !database.tracks.isEmpty {
+            localMusicMetadataScannedTrackIDs = Set(database.tracks.map(\.id))
+        } else {
+            localMusicMetadataScannedTrackIDs = database.metadataScannedTrackIDs
+        }
         refreshEffectiveLocalMusicTracks()
         localMusicPlaylists = database.playlists
         sessionQueue = []
@@ -5423,6 +5658,7 @@ final class OrbisonicViewModel: ObservableObject {
         }
         preloadFirstLocalMusicTrackIfNeeded(reason: "local music database loaded")
         scheduleLocalMusicMetadataEnhancement(reason: "local music database loaded")
+        scheduleLocalMusicMatroskaRepair(reason: "local music database loaded")
     }
 
     private func preloadFirstLocalMusicTrackIfNeeded(reason: String) {
@@ -5495,19 +5731,26 @@ final class OrbisonicViewModel: ObservableObject {
         cancelLocalPreparedFilePreload(reason: reason)
         localPreparedFileCache.removeAll()
         localAudioDescriptorCache.removeAll()
+        if preloadNextTrackEnabled { nextTrackPreloadStatus = .idle }
         AppLogger.shared.info(category: "local-music", "Cleared local preload caches reason=\(reason)")
     }
 
     private func scheduleAdjacentLocalFilePreloads(reason: String) {
         cancelLocalPreparedFilePreload(reason: "reschedule adjacent preloads: \(reason)")
-        guard sourceMode == .filePlayback else { return }
+        guard sourceMode == .filePlayback else {
+            if preloadNextTrackEnabled { nextTrackPreloadStatus = .idle }
+            return
+        }
 
-        let fullPCMPreloadEnabled = Self.enableAdjacentLocalPCMPreload && preloadsAdjacentLocalMusicTracks
+        let fullPCMPreloadEnabled = preloadNextTrackEnabled || preloadsAdjacentLocalMusicTracks
         if !fullPCMPreloadEnabled {
             logAdjacentLocalPCMPreloadDisabledIfNeeded(reason: reason)
         }
 
         let candidates = adjacentLocalFilePreloadCandidates()
+        if preloadNextTrackEnabled {
+            nextTrackPreloadStatus = candidates.isEmpty ? .noNextTrack : .idle
+        }
         guard !candidates.isEmpty else { return }
 
         let preloadGeneration = currentLocalFileLoadGeneration
@@ -5519,7 +5762,7 @@ final class OrbisonicViewModel: ObservableObject {
         guard fullPCMPreloadEnabled else { return }
 
         scheduleAdjacentFullLocalPCMPreloads(
-            candidates: candidates,
+            candidates: Array(candidates.prefix(1)),
             reason: reason,
             generation: preloadGeneration
         )
@@ -5658,6 +5901,7 @@ final class OrbisonicViewModel: ObservableObject {
                     ]
                 )
                 guard budgetDecision.allowed else { continue }
+                if self.preloadNextTrackEnabled { self.nextTrackPreloadStatus = .preparing }
 
                 self.logLocalTransportTiming(
                     debugTiming,
@@ -5726,6 +5970,9 @@ final class OrbisonicViewModel: ObservableObject {
                         for: candidate.track.url,
                         expectedKey: candidate.key
                     )
+                    if self.preloadNextTrackEnabled {
+                        self.nextTrackPreloadStatus = storeResult.stored ? .ready : .skippedLowMemory
+                    }
                     self.logLocalTransportTiming(
                         debugTiming,
                         storeResult.stored ? "adjacent full PCM preload finished" : "adjacent full PCM preload discarded",
@@ -5771,18 +6018,34 @@ final class OrbisonicViewModel: ObservableObject {
     }
 
     private func adjacentPreloadBudgetDecision(estimatedBytes: Int?) -> (allowed: Bool, reason: String) {
+        if preloadNextTrackEnabled {
+            let memory = systemMemoryProvider.snapshot()
+            let decision = planNextTrackPreload(
+                estimatedBytes: estimatedBytes,
+                availableBytes: memory.availableBytes,
+                fraction: Self.nextTrackPreloadAvailableRAMFraction
+            )
+            switch decision {
+            case .allow:
+                return (true, "within adaptive RAM budget")
+            case .skipLowMemory:
+                nextTrackPreloadStatus = .skippedLowMemory
+                return (false, "estimated decoded PCM exceeds adaptive RAM budget")
+            case .skipUnknownSize:
+                nextTrackPreloadStatus = .skippedUnknownSize
+                return (false, "missing decoded PCM estimate")
+            }
+        }
+
         guard adjacentFullPreloadPCMByteLimit > 0 else {
             return (false, "adjacent full PCM preload cap is zero")
         }
-
         guard let estimatedBytes, estimatedBytes > 0 else {
             return (false, "missing decoded PCM estimate")
         }
-
         guard estimatedBytes <= adjacentFullPreloadPCMByteLimit else {
             return (false, "estimated decoded PCM exceeds adjacent preload cap")
         }
-
         return (true, "within adjacent preload cap")
     }
 
@@ -5825,6 +6088,51 @@ final class OrbisonicViewModel: ObservableObject {
         return candidates
     }
 
+    var nextTrackPreloadCaptionText: String {
+        let summary = nextTrackPreloadWebSummary()
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB]
+        formatter.countStyle = .memory
+        var parts: [String] = ["Free memory: \(formatter.string(fromByteCount: Int64(summary.freeBytes)))"]
+        if let bytes = summary.nextEstimateBytes, bytes > 0 {
+            parts.append("Next \u{2248} \(formatter.string(fromByteCount: Int64(bytes)))")
+        }
+        if preloadNextTrackEnabled {
+            parts.append(nextTrackPreloadStatus.displayLabel)
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// The next track in the queue, independent of cache state, for display
+    /// purposes. Unlike the preload candidates, this still resolves once the
+    /// track is prepared so chips keep showing the name in the `.ready` state.
+    private func nextQueueTrackForDisplay() -> LocalMusicTrack? {
+        guard let currentIndex = sessionQueueIndex,
+              sessionQueue.indices.contains(currentIndex),
+              sessionQueue.count > 1
+        else { return nil }
+        let nextIndex = (currentIndex + 1) % sessionQueue.count
+        let track = sessionQueue[nextIndex]
+        guard track.id != currentFileURL?.path else { return nil }
+        return track
+    }
+
+    /// Cheap next-track label for view bodies: no memory snapshot syscall.
+    var nextTrackPreloadDisplayLabel: String? {
+        nextQueueTrackForDisplay()?.displayTitle
+    }
+
+    func nextTrackPreloadWebSummary() -> (nextLabel: String?, nextEstimateBytes: Int?, freeBytes: Int, totalBytes: Int) {
+        let memory = systemMemoryProvider.snapshot()
+        let next = nextQueueTrackForDisplay()
+        return (
+            nextLabel: next?.displayTitle,
+            nextEstimateBytes: next.flatMap { estimatedPreparedPCMBytes(for: $0) },
+            freeBytes: memory.availableBytes,
+            totalBytes: memory.totalBytes
+        )
+    }
+
     private func estimatedPreparedPCMBytes(for track: LocalMusicTrack) -> Int? {
         PreparedPCMPolicy.estimatedDecodedPCMBytes(
             durationSeconds: track.duration,
@@ -5853,7 +6161,8 @@ final class OrbisonicViewModel: ObservableObject {
             settings: localMusicSettings,
             tracks: localMusicBaseTracks,
             playlists: localMusicPlaylists,
-            metadataOverlays: localMusicMetadataOverlays
+            metadataOverlays: localMusicMetadataOverlays,
+            metadataScannedTrackIDs: localMusicMetadataScannedTrackIDs
         ))
     }
 
@@ -5907,7 +6216,32 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
-    private func scheduleLocalMusicMetadataEnhancement(reason: String) {
+    // Runs the Matroska channel/artwork repair off the synchronous load path.
+    // It launches ffprobe subprocesses (Process.waitUntilExit pumps a runloop),
+    // which must never happen on the main thread during the SwiftUI StateObject
+    // init or a screen-parameters notification can reenter the graph and abort.
+    private func scheduleLocalMusicMatroskaRepair(reason: String) {
+        localMusicMatroskaRepairTask?.cancel()
+        guard !Self.isRunningUnitTests, !localMusicBaseTracks.isEmpty else { return }
+        let tracks = localMusicBaseTracks
+        let extractsAlbumArt = localMusicSettings.extractsAlbumArt
+        let library = localMusicLibrary
+        localMusicMatroskaRepairTask = Task(priority: .background) { @MainActor [weak self] in
+            let repaired = await library.repairingStaleMatroskaTracks(in: tracks, extractsAlbumArt: extractsAlbumArt)
+            guard let self, !Task.isCancelled else { return }
+            self.localMusicMatroskaRepairTask = nil
+            guard repaired != self.localMusicBaseTracks else { return }
+            self.localMusicBaseTracks = repaired
+            self.refreshEffectiveLocalMusicTracks()
+            self.persistLocalMusicDatabase()
+            AppLogger.shared.notice(
+                category: "local-music",
+                "Repaired stale Matroska metadata reason=\(reason) tracks=\(repaired.count)"
+            )
+        }
+    }
+
+    private func scheduleLocalMusicMetadataEnhancement(reason: String, force: Bool = false) {
         localMusicMetadataEnrichmentTask?.cancel()
         guard localMusicSettings.enhancesMetadata,
               let localMusicMetadataEnricher,
@@ -5916,24 +6250,31 @@ final class OrbisonicViewModel: ObservableObject {
 
         let tracks = localMusicBaseTracks
         let existingOverlays = localMusicMetadataOverlays
-        localMusicMetadataEnrichmentTask = Task { @MainActor [weak self] in
-            let enrichedOverlays = await localMusicMetadataEnricher.enrich(
+        let alreadyScanned = localMusicMetadataScannedTrackIDs
+        localMusicMetadataEnrichmentTask = Task(priority: .background) { @MainActor [weak self] in
+            let result = await localMusicMetadataEnricher.enrich(
                 tracks: tracks,
-                existingOverlays: existingOverlays
+                existingOverlays: existingOverlays,
+                alreadyScannedTrackIDs: alreadyScanned,
+                forceRescan: force
             )
             guard let self, !Task.isCancelled else { return }
             self.localMusicMetadataEnrichmentTask = nil
             guard self.localMusicSettings.enhancesMetadata else { return }
-            guard enrichedOverlays != self.localMusicMetadataOverlays else { return }
+
+            let overlaysChanged = result.overlays != self.localMusicMetadataOverlays
+            let scannedChanged = result.scannedTrackIDs != self.localMusicMetadataScannedTrackIDs
+            guard overlaysChanged || scannedChanged else { return }
 
             let previousDisplayTracks = self.localMusicTracks
-            self.localMusicMetadataOverlays = enrichedOverlays
+            self.localMusicMetadataOverlays = result.overlays
+            self.localMusicMetadataScannedTrackIDs = result.scannedTrackIDs
             self.refreshEffectiveLocalMusicTracks()
             self.persistLocalMusicDatabase()
             let changedCount = zip(previousDisplayTracks, self.localMusicTracks).filter { $0 != $1 }.count
             AppLogger.shared.notice(
                 category: "local-music",
-                "Applied metadata enhancement reason=\(reason) changedTracks=\(changedCount)"
+                "Applied metadata enhancement reason=\(reason) force=\(force) changedTracks=\(changedCount) scanned=\(result.scannedTrackIDs.count)"
             )
         }
     }
@@ -7347,7 +7688,7 @@ final class OrbisonicViewModel: ObservableObject {
         try? engine.setDiagnosticMonitorOutputDevice(nil)
         beginDiagnosticPlaybackReplacingCurrent()
 
-        guard ensureOutputForAction(.monitor) else {
+        guard ensureOutputForAction(.renderer) else {
             restoreSourceAfterFailedDiagnosticStart()
             return
         }
@@ -7369,8 +7710,8 @@ final class OrbisonicViewModel: ObservableObject {
             activeDiagnosticChannelIndex = channel - 1
             activeDiagnosticChannelCount = Self.diagnosticSpeakerChannelCount
             activeDiagnosticWalkTitle = "Test Tone"
-            testToneStatus = "Playing channel \(channel) through Normal Monitor."
-            statusMessage = "Channel \(channel) tone is active through Normal Monitor on \(routeDisplayName)."
+            testToneStatus = "Playing channel \(channel) through the Sonic Sphere renderer."
+            statusMessage = "Channel \(channel) tone is active on the Sonic Sphere renderer via \(routeDisplayName)."
 
             applyRendererDiagnosticMeterLevels(index: channel - 1, monitorDownmixActive: monitorDownmix)
 
@@ -7452,7 +7793,7 @@ final class OrbisonicViewModel: ObservableObject {
     ) {
         let requestedMode: RendererRenderMode
         switch nextMode {
-        case .direct30, .direct31:
+        case .direct30, .direct31, .directPassthrough:
             requestedMode = .automatic
         default:
             requestedMode = nextMode
@@ -8655,7 +8996,8 @@ final class OrbisonicViewModel: ObservableObject {
     private func applyOutputRouteIfAvailable(
         _ route: OutputRouteInfo,
         purpose: OutputPurpose,
-        label: String
+        label: String,
+        applyAsynchronously: Bool = false
     ) -> Bool {
         let stateBefore = debugPlaybackStateSnapshot()
         let previousDevice = outputRoute.deviceName
@@ -8711,6 +9053,25 @@ final class OrbisonicViewModel: ObservableObject {
         }
 
         do {
+            if applyAsynchronously {
+                outputRoute = route
+                configureMonitorMeters()
+                syncRendererAudioRouting()
+                statusMessage = "\(purpose.title) output set to \(label)."
+                AppLogger.shared.notice(
+                    category: "route",
+                    "Selected \(purpose.lowerTitle) output label=\(label) device=\(route.deviceName) uid=\(route.uid) channels=\(route.outputChannelCount) sampleRate=\(formatSampleRate(route.nominalSampleRate)) (async apply)"
+                )
+                logOutputRoutingDebug(
+                    output: purpose.title,
+                    previousDevice: previousDevice,
+                    newDevice: route.deviceName,
+                    playbackStateBefore: stateBefore,
+                    graphRebuild: true
+                )
+                beginAsyncOutputDeviceApply(deviceID: route.deviceID, deviceName: route.deviceName)
+                return true
+            }
             try engine.setOutputDevice(route.deviceID)
             outputRoute = route
             configureMonitorMeters()
@@ -9325,6 +9686,30 @@ final class OrbisonicViewModel: ObservableObject {
         }
     }
 
+    /// Apply a refreshed output device without blocking the MainActor. The
+    /// expensive CoreAudio syscall runs on the engine's serial queue while the
+    /// UI stays responsive; `activity` surfaces the switch to both UIs.
+    private func beginAsyncOutputDeviceApply(deviceID: AudioDeviceID, deviceName: String) {
+        outputDeviceApplyInFlightID = deviceID
+        activity = PlaybackActivity(phase: .switchingOutput, detail: deviceName)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.outputDeviceApplyInFlightID = nil
+                if self.activity.phase == .switchingOutput { self.activity = .idle }
+            }
+            do {
+                try await self.engine.setOutputDeviceAsync(deviceID)
+                self.lastAppliedOutputDeviceID = deviceID
+            } catch {
+                AppLogger.shared.warning(
+                    category: "route",
+                    "Could not apply refreshed output device (async): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
     private func applyRouteRefreshSnapshot(_ snapshot: RouteRefreshSnapshot) {
         isRouteRefreshInFlight = false
         defer {
@@ -9433,16 +9818,18 @@ final class OrbisonicViewModel: ObservableObject {
             outputRoute = refreshedActiveRoute
             configureMonitorMeters()
 
-            var routeApplyError: String?
+            let routeApplyError: String? = nil
             var didApplyOutputDevice = false
-            if refreshedActiveRoute.isAvailable, !isPlaying, !isTestTonePlaying, !isDiagnosticSequencePlaying {
-                do {
-                    try engine.setOutputDevice(refreshedActiveRoute.deviceID)
-                    didApplyOutputDevice = true
-                } catch {
-                    routeApplyError = error.localizedDescription
-                    AppLogger.shared.warning(category: "route", "Could not apply refreshed output device: \(error.localizedDescription)")
-                }
+            let applyPlan = planOutputDeviceApply(
+                refreshedDeviceID: refreshedActiveRoute.deviceID,
+                isAvailable: refreshedActiveRoute.isAvailable,
+                isBusy: isPlaying || isTestTonePlaying || isDiagnosticSequencePlaying,
+                currentlyAppliedDeviceID: lastAppliedOutputDeviceID,
+                inFlightDeviceID: outputDeviceApplyInFlightID
+            )
+            if case let .apply(deviceID) = applyPlan {
+                didApplyOutputDevice = true
+                beginAsyncOutputDeviceApply(deviceID: deviceID, deviceName: refreshedActiveRoute.deviceName)
             }
 
             AppLogger.shared.notice(
@@ -9634,6 +10021,33 @@ final class OrbisonicViewModel: ObservableObject {
             for: currentRendererLayout,
             preset: rendererPreset,
             renderMode: effectiveRendererRenderMode(forRequestedMode: requestedMode)
+        )
+    }
+
+    // Builds the scene for a freshly loaded file from ITS layout, not the
+    // currentRendererLayout (which still reflects loadedChannels from the
+    // previous track at commit time). Passed into engine.loadPreparedFile so
+    // the single graph rebuild uses the matching matrix instead of stalling
+    // in the stereo-monitor fallback on a channel-count mismatch.
+    private func committedRendererScene(for loaded: LoadedAudioFile) -> RendererSceneModel {
+        let layout = SurroundLayout(
+            name: loaded.metadata.layoutName.trimmedNilIfBlank ?? "\(loaded.layout.channelCount)-Channel Input",
+            channels: loaded.layout.channels
+        )
+        return committedRendererScene(for: layout)
+    }
+
+    private func committedRendererScene(for layout: SurroundLayout) -> RendererSceneModel {
+        let mode = RendererModePolicy.effectiveRequestedMode(
+            requestedMode: .automatic,
+            inputChannelCount: layout.channelCount,
+            alwaysMono: rendererAlwaysMono,
+            twoChannelPreference: rendererTwoChannelPreference
+        )
+        return RendererMatrixBuilder.sceneModel(
+            for: layout,
+            preset: rendererPreset,
+            renderMode: mode
         )
     }
 

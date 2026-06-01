@@ -3,6 +3,30 @@ import XCTest
 
 final class OrbisonicWebStateTests: XCTestCase {
     @MainActor
+    func testWebStateSurfacesPlaybackActivityForBothPages() {
+        let model = OrbisonicViewModel()
+        model.setActivityForTesting(PlaybackActivity(phase: .decoding, detail: "Aurora.flac", progress: 0.5))
+
+        let controlState = model.webStateForTesting(controlEnabled: true)
+        XCTAssertEqual(controlState.activity.phase, "decoding")
+        XCTAssertTrue(controlState.activity.isBusy)
+        XCTAssertFalse(controlState.activity.isIndeterminate)
+        XCTAssertEqual(controlState.activity.progress, 0.5)
+        XCTAssertTrue(controlState.activity.label.contains("Aurora.flac"))
+
+        let publicState = model.webStateForTesting(controlEnabled: false)
+        XCTAssertEqual(publicState.activity.phase, "decoding")
+        XCTAssertTrue(publicState.activity.isBusy)
+
+        model.setActivityForTesting(.idle)
+        let idle = model.webStateForTesting(controlEnabled: true)
+        XCTAssertEqual(idle.activity.phase, "idle")
+        XCTAssertFalse(idle.activity.isBusy)
+        XCTAssertTrue(idle.activity.label.isEmpty)
+        XCTAssertNil(idle.activity.progress)
+    }
+
+    @MainActor
     func testControlStateIncludesDiagnosticsAndErrorsWhilePublicStateDoesNot() {
         let model = OrbisonicViewModel()
 
@@ -13,7 +37,8 @@ final class OrbisonicWebStateTests: XCTestCase {
         let publicState = model.webStateForTesting(controlEnabled: false)
 
         XCTAssertTrue(controlState.controlEnabled)
-        XCTAssertNil(controlState.urls.controlPage)
+        XCTAssertNotNil(controlState.urls.controlPage)
+        XCTAssertEqual(controlState.urls.controlPage?.hasSuffix("/control"), true)
         XCTAssertEqual(controlState.diagnostics.availableTests, ["monitorWalk", "rendererWalk", "testTone"])
         XCTAssertEqual(controlState.diagnostics.selectedChannel, 12)
         XCTAssertEqual(controlState.build.lastError, "Desktop route error")
@@ -21,6 +46,7 @@ final class OrbisonicWebStateTests: XCTestCase {
         XCTAssertFalse(publicState.controlEnabled)
         XCTAssertEqual(publicState.diagnostics.availableTests, [])
         XCTAssertNil(publicState.build.lastError)
+        XCTAssertNil(publicState.urls.controlPage)
         XCTAssertNil(publicState.player.artworkURL)
     }
 
@@ -889,4 +915,19 @@ final class OrbisonicWebStateTests: XCTestCase {
             updatedAt: isPlaying ? "playing" : "paused"
         )
     }
+
+    @MainActor
+    func testWebStateExposesPreloadStatus() {
+        let model = OrbisonicViewModel()
+        model.preloadNextTrackEnabled = false
+        model.setPreloadStatusForTesting(.ready)
+
+        let state = model.webStateForTesting(controlEnabled: true)
+
+        XCTAssertEqual(state.preload.status, "ready")
+        XCTAssertEqual(state.preload.statusLabel, "Ready")
+        XCTAssertFalse(state.preload.enabled)
+        XCTAssertGreaterThan(state.preload.totalBytes, 0)
+    }
+
 }

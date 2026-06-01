@@ -25,6 +25,189 @@ final class DiagnosticRoutingRegressionTests: XCTestCase {
         XCTAssertFalse(rendererCase.contains("return ensureOutputForAction(.monitor)"))
     }
 
+    func testPlaySpeakerToneUsesRendererRoute() throws {
+        let source = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+        let function = try block(
+            named: "func playSelectedDiagnosticSpeakerTone()",
+            endingBefore: "func stopTestTone(",
+            in: source
+        )
+
+        XCTAssertTrue(function.contains("ensureOutputForAction(.renderer)"))
+        XCTAssertFalse(function.contains("ensureOutputForAction(.monitor)"))
+    }
+
+    func testRendererOutputGraphBypassesMainMixer() throws {
+        let source = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        let function = try block(
+            named: "private func configureRendererOutputGraph(format: AVAudioFormat) {",
+            endingBefore: "private struct OutputDevicePlaybackSnapshot",
+            in: source
+        )
+
+        XCTAssertTrue(function.contains("engine.connect(outputGainMixer, to: engine.outputNode, format: format)"))
+        XCTAssertTrue(function.contains("engine.disconnectNodeOutput(engine.mainMixerNode)"))
+        XCTAssertFalse(function.contains("engine.connect(outputGainMixer, to: engine.mainMixerNode"))
+    }
+
+    func testDiagnosticToneSizesOutputFromDeviceNativeChannelCount() throws {
+        let source = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        XCTAssertTrue(source.contains("func currentOutputDeviceConfiguration()"))
+
+        let function = try block(
+            named: "func playDiagnosticChannelTone(",
+            endingBefore: "private func diagnosticChannelFormat(",
+            in: source
+        )
+        XCTAssertTrue(function.contains("deviceConfig?.channelCount"))
+    }
+
+    func testRefreshScriptInjectsSwiftExecutorLegacyOverride() throws {
+        // A SwiftUI context-menu Button action invoked through an AppKit
+        // menu-item callback crashes in swift_task_isCurrentExecutorWithFlagsImpl
+        // (EXC_BAD_ACCESS) under the Swift 6 concurrency runtime. The bundle's
+        // Info.plist must carry the legacy executor override so `open`
+        // (LaunchServices) sets it at process start.
+        let script = try source("scripts/refresh-orbisonic-app.sh")
+        XCTAssertTrue(script.contains("LSEnvironment"))
+        XCTAssertTrue(script.contains("SWIFT_IS_CURRENT_EXECUTOR_LEGACY_MODE_OVERRIDE"))
+        XCTAssertTrue(script.contains("legacy"))
+    }
+
+    func testLoadPreparedFileAppliesRendererSceneBeforeRebuild() throws {
+        // A new local track must hand its renderer scene to the engine
+        // BEFORE the playback graph is rebuilt. Otherwise the rebuild runs
+        // against the previous track's matrix; when channel counts differ
+        // (e.g. 4ch quad -> 52ch) rendererOutputFormat returns nil and the
+        // engine stalls for ~50s in the stereo-monitor fallback on the main
+        // thread, freezing the UI and crashing on the next tap.
+        let source = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        let function = try block(
+            named: "func loadPreparedFile(",
+            endingBefore: "func startStreaming(",
+            in: source
+        )
+        let sceneApply = try XCTUnwrap(function.range(of: "self.rendererScene = rendererScene"))
+        let rebuild = try XCTUnwrap(function.range(of: "rebuildPlaybackGraph(for: loaded"))
+        XCTAssertTrue(
+            sceneApply.lowerBound < rebuild.lowerBound,
+            "Renderer scene must be applied before the playback graph rebuild"
+        )
+    }
+
+    func testLocalCommitPassesRendererSceneIntoEngine() throws {
+        // The view model commit must compute the scene from the freshly
+        // loaded file (its layout), not from the stale loadedChannels, and
+        // pass it into loadPreparedFile so the single rebuild uses the
+        // matching matrix.
+        let source = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+        XCTAssertTrue(source.contains("func committedRendererScene(for loaded: LoadedAudioFile)"))
+        XCTAssertTrue(source.contains("rendererScene: committedRendererScene(for: loaded)"))
+    }
+
+    func testLocalMusicLoadDoesNotSpawnMatroskaSubprocessSynchronously() throws {
+        // LocalMusicLibrary.load() runs synchronously inside the SwiftUI
+        // @StateObject init (an AttributeGraph update). It must NOT launch
+        // ffprobe subprocesses there: Process.waitUntilExit() pumps a nested
+        // main-thread runloop, which delivers a queued screen-parameters
+        // notification that reenters SwiftUI and aborts with
+        // AG::precondition_failure. The Matroska repair must run off-main.
+        let source = try source("Sources/Orbisonic/LocalMusicLibrary.swift")
+        let load = try block(named: "func load()", endingBefore: "func save(", in: source)
+        XCTAssertFalse(
+            load.contains("repairStaleMatroskaMetadata"),
+            "load() must not run the synchronous Matroska subprocess repair"
+        )
+        XCTAssertFalse(
+            load.contains("repairingStaleMatroskaTracks"),
+            "load() must not run the Matroska subprocess repair synchronously"
+        )
+    }
+
+    func testMatroskaRepairRunsOnBackgroundTask() throws {
+        // The Matroska channel/artwork repair must be scheduled on a background
+        // Task after launch (off the main thread), not synchronously during init.
+        let library = try source("Sources/Orbisonic/LocalMusicLibrary.swift")
+        XCTAssertTrue(
+            library.contains("func repairingStaleMatroskaTracks(in tracks: [LocalMusicTrack], extractsAlbumArt: Bool) async"),
+            "Library must expose an async off-main Matroska repair"
+        )
+        let model = try source("Sources/Orbisonic/OrbisonicViewModel.swift")
+        XCTAssertTrue(model.contains("func scheduleLocalMusicMatroskaRepair(reason: String)"))
+        XCTAssertTrue(model.contains("await library.repairingStaleMatroskaTracks("))
+        let loadDB = try block(
+            named: "func loadLocalMusicDatabase()",
+            endingBefore: "func preloadFirstLocalMusicTrackIfNeeded(",
+            in: model
+        )
+        XCTAssertTrue(
+            loadDB.contains("scheduleLocalMusicMatroskaRepair("),
+            "loadLocalMusicDatabase must schedule the background Matroska repair"
+        )
+    }
+
+    func testRendererOutputGraphSkipsRedundantReconfiguration() throws {
+        // Re-wiring outputGainMixer -> outputNode on a RUNNING engine forces a
+        // synchronous audio-HAL (Dante 32ch device) uninit/reinit that can block
+        // the main thread for seconds and pump a nested runloop. A queued button
+        // mouse-down then re-enters SwiftUI _ButtonGesture via
+        // MainActor.assumeIsolated and traps (EXC_BREAKPOINT). The renderer output
+        // is always 31ch/48kHz, so on a track change the output node is already
+        // wired correctly: the reconfiguration must be skipped when the requested
+        // format already matches the live connection.
+        let source = try source("Sources/Orbisonic/OrbisonicEngine.swift")
+        let function = try block(
+            named: "private func configureRendererOutputGraph(format: AVAudioFormat) {",
+            endingBefore: "private struct OutputDevicePlaybackSnapshot",
+            in: source
+        )
+        XCTAssertTrue(
+            function.contains("outputConnectionPoints(for: outputGainMixer"),
+            "Must inspect the live output connection before re-wiring"
+        )
+        let guardReturn = try XCTUnwrap(function.range(of: "return"))
+        let firstDisconnect = try XCTUnwrap(function.range(of: "engine.disconnectNodeOutput(preVolumeMixer)"))
+        XCTAssertTrue(
+            guardReturn.lowerBound < firstDisconnect.lowerBound,
+            "An early-return guard must precede the disconnect/reconnect"
+        )
+    }
+
+    func testProductionGateCoercesDesktopMonitorSampleRate() throws {
+        // The desktop stereo monitor device (e.g. MacBook Air Speakers) can sit
+        // at a different hardware rate than the 48 kHz Dante session -- macOS
+        // resets it on sleep/wake or when another app requests 96 kHz. The gate
+        // used to hard-reject every track with a "desktop route sample rate
+        // mismatch". It must instead coerce the monitor device to the session
+        // rate before validating the plan, so playback just works.
+        let source = try source("Sources/Orbisonic/LegacyLocalFileProductionGate.swift")
+        let function = try block(
+            named: "static func admission(",
+            endingBefore: "static func formatSampleRate(",
+            in: source
+        )
+        XCTAssertTrue(
+            function.contains("coerceDesktopMonitorSampleRate"),
+            "Gate must accept an injectable desktop-monitor sample-rate coercion"
+        )
+        let coerceCall = try XCTUnwrap(
+            function.range(of: "coerceDesktopMonitorSampleRate(desktopRoute.deviceID, sessionRate.hertz)")
+        )
+        let descriptorBuild = try XCTUnwrap(function.range(of: "outputRouteDescriptor(from:"))
+        XCTAssertTrue(
+            coerceCall.lowerBound < descriptorBuild.lowerBound,
+            "Monitor rate must be coerced before the route descriptor is built"
+        )
+    }
+
+    func testOutputDeviceSampleRateCoercionHelperExists() throws {
+        // The production-default coercion uses CoreAudio to set the devices
+        // nominal sample rate and read it back, mirroring BlackHoleRouteRepair.
+        let source = try source("Sources/Orbisonic/OutputDeviceSampleRate.swift")
+        XCTAssertTrue(source.contains("kAudioDevicePropertyNominalSampleRate"))
+        XCTAssertTrue(source.contains("func coerce(deviceID: AudioDeviceID, to targetRate: Double)"))
+    }
+
     private func block(named startMarker: String, endingBefore endMarker: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startMarker))
         let end = try XCTUnwrap(source.range(of: endMarker, range: start.upperBound..<source.endIndex))

@@ -24,6 +24,18 @@ struct OutputRouteInfo: Equatable, Identifiable {
         uid.isEmpty ? "\(deviceID)" : uid
     }
 
+    func withNominalSampleRate(_ rate: Double) -> OutputRouteInfo {
+        OutputRouteInfo(
+            deviceID: deviceID,
+            uid: uid,
+            deviceName: deviceName,
+            manufacturer: manufacturer,
+            transportName: transportName,
+            outputChannelCount: outputChannelCount,
+            nominalSampleRate: rate
+        )
+    }
+
     func matchesAudioDevice(_ other: OutputRouteInfo) -> Bool {
         guard isAvailable, other.isAvailable else { return false }
         if !uid.isEmpty, uid == other.uid {

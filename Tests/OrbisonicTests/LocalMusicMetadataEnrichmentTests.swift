@@ -162,7 +162,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        _ = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        _ = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         let persistedOverlay = try XCTUnwrap(library.load().metadataOverlays[track.id])
         XCTAssertEqual(persistedOverlay.title, "Checkpoint Title")
@@ -352,7 +352,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         XCTAssertTrue(overlays.isEmpty)
         XCTAssertEqual(lookup.lookupCount, 1)
@@ -472,7 +472,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         let overlay = try XCTUnwrap(overlays[track.id])
         XCTAssertEqual(overlay.title, "Speak To Me")
@@ -513,7 +513,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         let overlay = try XCTUnwrap(overlays[track.id])
         XCTAssertEqual(overlay.title, "First Track")
@@ -663,7 +663,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         let overlay = try XCTUnwrap(overlays[track.id])
         XCTAssertEqual(overlay.title, "Middle of Nowhere")
@@ -707,7 +707,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [track.id: existing])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [track.id: existing], alreadyScannedTrackIDs: [], forceRescan: true).overlays
 
         let overlay = try XCTUnwrap(overlays[track.id])
         XCTAssertEqual(overlay.title, "Time")
@@ -789,7 +789,7 @@ final class LocalMusicMetadataEnrichmentTests: XCTestCase {
             lookupDelayNanoseconds: 0
         )
 
-        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:])
+        let overlays = await enricher.enrich(tracks: [track], existingOverlays: [:], alreadyScannedTrackIDs: [], forceRescan: true).overlays
         return try XCTUnwrap(overlays[track.id])
     }
 
@@ -803,10 +803,12 @@ private final class CountingMetadataEnricher: LocalMusicMetadataEnriching, @unch
 
     func enrich(
         tracks: [LocalMusicTrack],
-        existingOverlays: [String: LocalMusicMetadataOverlay]
-    ) async -> [String: LocalMusicMetadataOverlay] {
+        existingOverlays: [String: LocalMusicMetadataOverlay],
+        alreadyScannedTrackIDs: Set<String>,
+        forceRescan: Bool
+    ) async -> (overlays: [String: LocalMusicMetadataOverlay], scannedTrackIDs: Set<String>) {
         callCount += 1
-        return existingOverlays
+        return (existingOverlays, alreadyScannedTrackIDs)
     }
 }
 

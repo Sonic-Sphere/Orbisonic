@@ -74,6 +74,23 @@ enum StreamingLocalPlaybackPolicy {
     static let steadyChunkFrames: AVAudioFrameCount = 16_384
     static let targetBufferAheadSeconds: TimeInterval = 2
     static let hardPCMByteCap = 128 * 1_024 * 1_024
+
+    // The Sphere render path emits 31 logical channels (30 full-range + 1 LFE) into a
+    // 32-channel physical buffer. A whole-file full-prepare render allocates one
+    // AVAudioPCMBuffer of channels * frameCount * 4 bytes in 32-bit unsigned arithmetic,
+    // which throws std::overflow_error (SIGABRT) once the product exceeds UInt32.max
+    // (~34.6M frames, ~12 min @48kHz). Such files MUST take the windowed streaming path
+    // so they render full 31-channel spatial instead of crashing or falling back to stereo.
+    static let sphereRenderOutputChannelCount = 32
+
+    static func requiresStreamingForFullSpatialRender(
+        durationFrames: AVAudioFramePosition?,
+        outputChannelCount: Int = sphereRenderOutputChannelCount
+    ) -> Bool {
+        guard let durationFrames, durationFrames > 0, outputChannelCount > 0 else { return false }
+        let totalBytes = Int64(durationFrames) * Int64(outputChannelCount) * 4
+        return totalBytes > Int64(UInt32.max)
+    }
 }
 
 enum LocalGaplessPlaybackPolicy {

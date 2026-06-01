@@ -325,7 +325,8 @@ final class OrbisonicEngine {
     func loadPreparedFile(
         _ loaded: LoadedAudioFile,
         debugTiming: DebugTimingContext? = nil,
-        localGaplessQueue: LocalGaplessEngineQueueSnapshot? = nil
+        localGaplessQueue: LocalGaplessEngineQueueSnapshot? = nil,
+        rendererScene: RendererSceneModel? = nil
     ) -> LoadedAudioFile {
         let commitStart = DispatchTime.now().uptimeNanoseconds
         debugTiming?.log("commit start", fileURL: loaded.url)
@@ -355,6 +356,11 @@ final class OrbisonicEngine {
         state = .ready
         debugTiming?.log("replace current source end", fileURL: loaded.url)
 
+        if let rendererScene {
+            self.rendererScene = rendererScene
+            self.rendererMode = rendererScene.renderMode
+        }
+
         if audioGraphEnabled {
             rebuildPlaybackGraph(for: loaded, debugTiming: debugTiming)
             applyTuning(tuning)
@@ -377,6 +383,7 @@ final class OrbisonicEngine {
     func startStreaming(
         source: StreamingAudioFileSource,
         descriptor: AudioAssetDescriptor,
+        rendererScene: RendererSceneModel? = nil,
         debugTiming: DebugTimingContext? = nil
     ) async throws {
         let commitStart = DispatchTime.now().uptimeNanoseconds
@@ -423,6 +430,11 @@ final class OrbisonicEngine {
         pausedPlaybackNeedsReschedule = false
         state = .ready
         completionToken = context.token
+
+        if let rendererScene {
+            self.rendererScene = rendererScene
+            self.rendererMode = rendererScene.renderMode
+        }
 
         if !audioGraphEnabled {
             source.start()
@@ -801,6 +813,11 @@ final class OrbisonicEngine {
         AppLogger.shared.notice(category: "live-input", "Live input mute=\(muted)")
     }
 
+    /// Serial queue that isolates the blocking CoreAudio `AudioUnitSetProperty(CurrentDevice)`
+    /// syscall off the MainActor. Dante/AVB endpoints can make that HAL call block
+    /// for seconds.
+    private let outputDeviceApplyQueue = DispatchQueue(label: "com.orbisonic.output-device-apply")
+
     func setOutputDevice(_ deviceID: AudioDeviceID) throws {
         guard audioGraphEnabled else { return }
         guard deviceID != 0 else {
@@ -854,6 +871,55 @@ final class OrbisonicEngine {
         }
 
         return try restorePlayback(afterOutputDeviceChange: snapshot)
+    }
+
+    /// Async variant of `setOutputDevice`. Keeps the fast AVAudioEngine
+    /// teardown on the calling (main) actor but hops the blocking CoreAudio
+    /// `AudioUnitSetProperty(CurrentDevice)` syscall onto a dedicated serial
+    /// queue so it never freezes the UI. The engine is stopped before the hop,
+    /// so no AVAudioEngine graph mutation runs off the main actor.
+    @MainActor
+    func setOutputDeviceAsync(_ deviceID: AudioDeviceID) async throws {
+        guard audioGraphEnabled else { return }
+        guard deviceID != 0 else {
+            throw OutputDeviceSelectionError.invalidDevice
+        }
+
+        guard let audioUnit = engine.outputNode.audioUnit else {
+            throw OutputDeviceSelectionError.outputAudioUnitUnavailable
+        }
+
+        if engine.isRunning {
+            markPausedPlaybackNeedsReschedule(reason: "output device change")
+            cancelLocalGaplessScheduler(reason: "output device change")
+            engine.stop()
+            resetMonitorMeterLevels()
+        }
+
+        let queue = outputDeviceApplyQueue
+        // The AudioUnit is a C pointer (non-Sendable); it is only touched on
+        // the serial queue while the engine is stopped, so the hop is safe.
+        nonisolated(unsafe) let unit = audioUnit
+        let status: OSStatus = await withCheckedContinuation { continuation in
+            queue.async {
+                var selectedDeviceID = deviceID
+                let result = AudioUnitSetProperty(
+                    unit,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &selectedDeviceID,
+                    UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                continuation.resume(returning: result)
+            }
+        }
+
+        guard status == noErr else {
+            throw OutputDeviceSelectionError.setDeviceFailed(status)
+        }
+
+        AppLogger.shared.notice(category: "engine", "Selected output device id=\(deviceID) (async apply).")
     }
 
     func stop() {
@@ -928,6 +994,55 @@ final class OrbisonicEngine {
         )
     }
 
+    private func currentOutputDeviceConfiguration() -> (channelCount: Int, sampleRate: Double)? {
+        guard let audioUnit = engine.outputNode.audioUnit else { return nil }
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            &size
+        )
+        guard status == noErr, deviceID != 0 else { return nil }
+        let channels = outputDeviceChannelCount(deviceID)
+        guard channels > 0 else { return nil }
+        let rate = outputDeviceNominalSampleRate(deviceID)
+        return (channels, rate > 0 ? rate : preferredOutputSampleRate())
+    }
+
+    private func outputDeviceChannelCount(_ deviceID: AudioDeviceID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, raw) == noErr else { return 0 }
+        let listPtr = UnsafeMutableAudioBufferListPointer(raw.bindMemory(to: AudioBufferList.self, capacity: 1))
+        return listPtr.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private func outputDeviceNominalSampleRate(_ deviceID: AudioDeviceID) -> Double {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &rate) == noErr else { return 0 }
+        return Double(rate)
+    }
+
     func playDiagnosticChannelTone(
         channelIndex: Int,
         channelCount: Int,
@@ -945,7 +1060,8 @@ final class OrbisonicEngine {
         }
         stopTestTone()
 
-        let sampleRate = preferredOutputSampleRate()
+        let deviceConfig = currentOutputDeviceConfiguration()
+        let sampleRate = deviceConfig?.sampleRate ?? preferredOutputSampleRate()
 
         let node: AVAudioSourceNode
         let diagnosticAudioDescription: String
@@ -968,7 +1084,7 @@ final class OrbisonicEngine {
         }
 
         if primaryOutputEnabled {
-            let hardwareChannelCount = Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
+            let hardwareChannelCount = deviceConfig?.channelCount ?? Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
             let primaryChannelCount = max(channelCount, hardwareChannelCount)
             let primaryFormat = try diagnosticChannelFormat(
                 channelCount: primaryChannelCount,
@@ -1309,12 +1425,28 @@ final class OrbisonicEngine {
         let stereoFormat = stereoMonitorFormat(sampleRate: sampleRate)
         engine.connect(preVolumeMixer, to: outputGainMixer, format: stereoFormat)
         engine.connect(outputGainMixer, to: engine.mainMixerNode, format: stereoFormat)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
     }
 
     private func configureRendererOutputGraph(format: AVAudioFormat) {
+        // Re-wiring outputGainMixer -> outputNode on a RUNNING engine forces a
+        // synchronous audio-HAL (Dante 32ch device) uninit/reinit that can block
+        // the main thread for seconds and pump a nested runloop; a queued button
+        // mouse-down then re-enters SwiftUI _ButtonGesture and traps. The renderer
+        // output is always 31ch/48kHz, so on a track change the node is already
+        // wired correctly -- skip the reconfiguration when the format matches.
+        let alreadyConnectedToOutput = engine.outputConnectionPoints(for: outputGainMixer, outputBus: 0)
+            .contains { $0.node === engine.outputNode }
+        let currentFormat = outputGainMixer.outputFormat(forBus: 0)
+        if alreadyConnectedToOutput,
+           currentFormat.channelCount == format.channelCount,
+           currentFormat.sampleRate == format.sampleRate {
+            return
+        }
         engine.disconnectNodeOutput(preVolumeMixer)
         engine.disconnectNodeOutput(outputGainMixer)
-        engine.connect(outputGainMixer, to: engine.mainMixerNode, format: format)
+        engine.disconnectNodeOutput(engine.mainMixerNode)
+        engine.connect(outputGainMixer, to: engine.outputNode, format: format)
     }
 
     private struct OutputDevicePlaybackSnapshot {
@@ -2290,19 +2422,27 @@ final class OrbisonicEngine {
         debugPlaybackGraphBuildCount += 1
 #endif
         debugTiming?.log("replace current source graph rebuild start", fileURL: loadedFile.url)
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] before detachPlayerNodes sceneInput=\(rendererScene.matrix.inputCount) sceneOutput=\(rendererScene.matrix.outputCount) sourceChannels=\(loadedFile.layout.channelCount)")
         detachPlayerNodes()
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after detachPlayerNodes")
 
         meteringService.setInactive(signal: .sonicSphere, channelCount: rendererScene.matrix.outputCount)
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after meteringService.setInactive")
 
-        if let rendererFormat = rendererOutputFormat(
+        let rebuildRendererFormat = rendererOutputFormat(
             sourceSampleRate: loadedFile.sampleRate,
             sourceChannelCount: loadedFile.layout.channelCount
-        ) {
+        )
+        AppLogger.shared.debug(category: "engine", "[rebuild-trace] after rendererOutputFormat rendererFormat=\(rebuildRendererFormat.map { "ch=\($0.channelCount) sr=\($0.sampleRate)" } ?? "nil")")
+        if let rendererFormat = rebuildRendererFormat {
             configureRendererOutputGraph(format: rendererFormat)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after configureRendererOutputGraph")
             let player = AVAudioPlayerNode()
             playerNodes = [player]
             engine.attach(player)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after attach player; before connect")
             engine.connect(player, to: outputGainMixer, format: rendererFormat)
+            AppLogger.shared.debug(category: "engine", "[rebuild-trace] after connect player->outputGainMixer")
 
             AppLogger.shared.info(
                 category: "engine",
@@ -2495,6 +2635,19 @@ final class OrbisonicEngine {
         )
     }
 
+    // AudioToolbox sizes an AVAudioPCMBuffer's backing store as
+    // channels * frameCapacity * bytesPerSample using 32-bit unsigned arithmetic
+    // (caulk::numeric::exceptional_mul<unsigned int>) and throws std::overflow_error
+    // when the product exceeds UInt32.max -- which aborts the process. A whole-file
+    // 31-channel float render of a file longer than ~12 min @48kHz trips this, so
+    // callers must verify the allocation fits before constructing the buffer.
+    static func outputBufferByteCapacityFits(frameCount: Int, channelCount: Int) -> Bool {
+        guard frameCount > 0, channelCount > 0 else { return false }
+        let bytesPerSample = 4
+        let totalBytes = Int64(frameCount) * Int64(channelCount) * Int64(bytesPerSample)
+        return totalBytes <= Int64(UInt32.max)
+    }
+
     private func renderedOutputBuffer(
         sourceBuffers: [AVAudioPCMBuffer],
         startFrame: Int,
@@ -2502,7 +2655,17 @@ final class OrbisonicEngine {
         format: AVAudioFormat
     ) -> AVAudioPCMBuffer? {
         guard frameCount > 0,
-              let buffer = AVAudioPCMBuffer(
+              Self.outputBufferByteCapacityFits(frameCount: frameCount, channelCount: Int(format.channelCount))
+        else {
+            if frameCount > 0 {
+                AppLogger.shared.error(
+                    category: "transport",
+                    "Output render buffer too large to allocate; falling back to stereo monitor frames=\(frameCount) channels=\(format.channelCount)"
+                )
+            }
+            return nil
+        }
+        guard let buffer = AVAudioPCMBuffer(
                 pcmFormat: format,
                 frameCapacity: AVAudioFrameCount(frameCount)
               ),

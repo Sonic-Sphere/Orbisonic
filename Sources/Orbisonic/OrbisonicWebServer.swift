@@ -18,6 +18,7 @@ extension OrbisonicWebServer {
 
 struct OrbisonicWebURLSet: Equatable {
     let publicURL: String
+    let controlURL: String
 }
 
 private enum OrbisonicWebID {
@@ -58,6 +59,7 @@ private struct OrbisonicWebCommandPayload: Decodable {
     var value: String?
     var query: String?
     var sort: String?
+    var channels: Int?
     var index: Int?
     var seconds: Int?
     var shuffle: Bool?
@@ -153,6 +155,8 @@ struct OrbisonicWebState: Encodable {
     struct LocalMusic: Encodable {
         let search: String
         let sort: String
+        let channelFilter: Int
+        let availableChannelCounts: [Int]
         let count: String
         let queue: String
         let tracks: [Track]
@@ -211,8 +215,28 @@ struct OrbisonicWebState: Encodable {
         let machineIP: String
     }
 
+    struct Activity: Encodable {
+        let phase: String
+        let label: String
+        let isBusy: Bool
+        let isIndeterminate: Bool
+        let progress: Double?
+    }
+
+    struct Preload: Encodable {
+        let enabled: Bool
+        let status: String
+        let statusLabel: String
+        let nextLabel: String?
+        let nextEstimateBytes: Int?
+        let freeBytes: Int
+        let totalBytes: Int
+    }
+
     let generatedAt: String
     let controlEnabled: Bool
+    let activity: Activity
+    let preload: Preload
     let urls: URLs
     let player: Player
     let input: Input
@@ -246,11 +270,17 @@ final class OrbisonicWebServer {
         controlTokenLock.unlock()
     }
 
+    static var controlPageURL: String {
+        let host = preferredLANHost()
+        return "http://\(host):\(OrbisonicWebConstants.port)\(OrbisonicWebConstants.basePath)/control"
+    }
+
     static func urlSet(controlToken: String) -> OrbisonicWebURLSet {
         let host = preferredLANHost()
         let baseURL = "http://\(host):\(OrbisonicWebConstants.port)\(OrbisonicWebConstants.basePath)"
         return OrbisonicWebURLSet(
-            publicURL: "\(baseURL)/"
+            publicURL: "\(baseURL)/",
+            controlURL: "\(baseURL)/control"
         )
     }
 
@@ -341,6 +371,16 @@ final class OrbisonicWebServer {
 
         if request.method == "GET", isPublicPagePath(request.path) {
             send(status: 200, contentType: "text/html; charset=utf-8", body: Self.publicPageHTML, on: connection)
+            return
+        }
+
+        if request.method == "GET",
+           request.path == "\(OrbisonicWebConstants.basePath)/control"
+            || request.path == "\(OrbisonicWebConstants.basePath)/control/" {
+            controlTokenLock.lock()
+            let token = controlToken
+            controlTokenLock.unlock()
+            send(status: 200, contentType: "text/html; charset=utf-8", body: Self.controlPageHTML(token: token), on: connection)
             return
         }
 
@@ -588,9 +628,17 @@ extension OrbisonicViewModel {
         OrbisonicWebState(
             generatedAt: ISO8601DateFormatter().string(from: Date()),
             controlEnabled: controlEnabled,
+            activity: OrbisonicWebState.Activity(
+                phase: activity.phase.rawValue,
+                label: activity.label,
+                isBusy: activity.isBusy,
+                isIndeterminate: activity.isIndeterminate,
+                progress: activity.clampedProgress
+            ),
+            preload: makeWebPreloadState(),
             urls: OrbisonicWebState.URLs(
                 publicPage: self.webPublicPageURL,
-                controlPage: nil
+                controlPage: controlEnabled ? OrbisonicWebServer.controlPageURL : nil
             ),
             player: makeWebPlayerState(controlEnabled: controlEnabled),
             input: controlEnabled ? makeWebInputState() : makeWebPublicInputState(),
@@ -598,6 +646,19 @@ extension OrbisonicViewModel {
             localMusic: controlEnabled ? makeWebLocalMusicState() : nil,
             diagnostics: controlEnabled ? makeWebDiagnosticsState() : makeWebPublicDiagnosticsState(),
             build: controlEnabled ? makeWebBuildState() : makeWebPublicBuildState()
+        )
+    }
+
+    fileprivate func makeWebPreloadState() -> OrbisonicWebState.Preload {
+        let summary = nextTrackPreloadWebSummary()
+        return OrbisonicWebState.Preload(
+            enabled: preloadNextTrackEnabled,
+            status: nextTrackPreloadStatus.webToken,
+            statusLabel: nextTrackPreloadStatus.displayLabel,
+            nextLabel: summary.nextLabel,
+            nextEstimateBytes: summary.nextEstimateBytes,
+            freeBytes: summary.freeBytes,
+            totalBytes: summary.totalBytes
         )
     }
 
@@ -626,14 +687,17 @@ extension OrbisonicViewModel {
             if let sort = payload.sort, let mode = PlaylistSortMode(rawValue: sort) {
                 localMusicSortMode = mode
             }
+            if let channels = payload.channels {
+                localMusicChannelFilter = max(0, channels)
+            }
         case "\(OrbisonicWebConstants.basePath)/api/local-music/track":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebTrackCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/playlist":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebPlaylistCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/queue":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            try performWebQueueCommand(payload)
         case "\(OrbisonicWebConstants.basePath)/api/local-music/rescan":
-            throw OrbisonicWebCommandError.webControlReadOnly
+            rescanLocalMusicLibrary()
         case "\(OrbisonicWebConstants.basePath)/api/diagnostics":
             try performWebDiagnosticsCommand(payload)
         default:
@@ -926,8 +990,8 @@ extension OrbisonicViewModel {
             rendererOutput: rendererOutputSelectionText,
             rendererStatus: rendererOutputStatusText,
             rendererScene: rendererSceneOutputText,
-            monitorOptions: [],
-            rendererOptions: []
+            monitorOptions: webMonitorOutputOptions(),
+            rendererOptions: webRendererOutputOptions()
         )
     }
 
@@ -940,8 +1004,8 @@ extension OrbisonicViewModel {
             rendererOutput: "",
             rendererStatus: "",
             rendererScene: rendererSceneOutputText,
-            monitorOptions: [],
-            rendererOptions: []
+            monitorOptions: webMonitorOutputOptions(),
+            rendererOptions: webRendererOutputOptions()
         )
     }
 
@@ -949,6 +1013,8 @@ extension OrbisonicViewModel {
         OrbisonicWebState.LocalMusic(
             search: localMusicSearchText,
             sort: localMusicSortMode.rawValue,
+            channelFilter: localMusicChannelFilter,
+            availableChannelCounts: availableLocalMusicChannelCounts,
             count: localMusicCountText,
             queue: "",
             tracks: visibleLocalMusicTracks.prefix(80).map(webTrackState),

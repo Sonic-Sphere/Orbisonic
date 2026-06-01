@@ -50,17 +50,20 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
     var tracks: [LocalMusicTrack] = []
     var playlists: [LocalMusicPlaylist] = []
     var metadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+    var metadataScannedTrackIDs: Set<String> = []
 
     init(
         settings: LocalMusicSettings = LocalMusicSettings(),
         tracks: [LocalMusicTrack] = [],
         playlists: [LocalMusicPlaylist] = [],
-        metadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
+        metadataOverlays: [String: LocalMusicMetadataOverlay] = [:],
+        metadataScannedTrackIDs: Set<String> = []
     ) {
         self.settings = settings
         self.tracks = tracks
         self.playlists = playlists
         self.metadataOverlays = metadataOverlays
+        self.metadataScannedTrackIDs = metadataScannedTrackIDs
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -68,6 +71,7 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
         case tracks
         case playlists
         case metadataOverlays
+        case metadataScannedTrackIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -76,6 +80,7 @@ struct LocalMusicDatabase: Codable, Equatable, Sendable {
         tracks = try container.decodeIfPresent([LocalMusicTrack].self, forKey: .tracks) ?? []
         playlists = try container.decodeIfPresent([LocalMusicPlaylist].self, forKey: .playlists) ?? []
         metadataOverlays = try container.decodeIfPresent([String: LocalMusicMetadataOverlay].self, forKey: .metadataOverlays) ?? [:]
+        metadataScannedTrackIDs = try container.decodeIfPresent(Set<String>.self, forKey: .metadataScannedTrackIDs) ?? []
     }
 }
 
@@ -129,7 +134,7 @@ struct LocalMusicTrack: Identifiable, Codable, Equatable, Sendable {
 
     var id: String { path }
     var url: URL { URL(fileURLWithPath: path) }
-    var fallbackTitle: String { URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent }
+    var fallbackTitle: String { (fileName as NSString).deletingPathExtension }
 
     var displayTitle: String {
         title?.trimmedNilIfBlank ?? fallbackTitle
@@ -195,11 +200,11 @@ struct LocalMusicTrack: Identifiable, Codable, Equatable, Sendable {
     }
 
     var displayPath: String {
-        let folderPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        let folderPath = (path as NSString).deletingLastPathComponent
         guard let rootPath else { return folderPath }
 
         if folderPath == rootPath {
-            return URL(fileURLWithPath: rootPath).lastPathComponent
+            return (rootPath as NSString).lastPathComponent
         }
 
         let prefix = rootPath.hasSuffix("/") ? rootPath : "\(rootPath)/"
@@ -440,7 +445,7 @@ private struct MatroskaArtworkProbeStream: Decodable {
     }
 }
 
-final class LocalMusicLibrary {
+final class LocalMusicLibrary: @unchecked Sendable {
     private let fileManager: FileManager
     private let databaseURL: URL
     private let artworkDirectoryURL: URL
@@ -488,8 +493,7 @@ final class LocalMusicLibrary {
         do {
             let database = try JSONDecoder().decode(LocalMusicDatabase.self, from: data)
             let pruned = pruneMissingFiles(in: database)
-            let repaired = repairStaleMatroskaMetadata(in: pruned)
-            let indexed = repairMissingTrackIndexMetadata(in: repaired)
+            let indexed = repairMissingTrackIndexMetadata(in: pruned)
             if indexed != database {
                 save(indexed)
             }
@@ -864,10 +868,8 @@ final class LocalMusicLibrary {
         }
     }
 
-    private func repairStaleMatroskaMetadata(in database: LocalMusicDatabase) -> LocalMusicDatabase {
-        var repaired = database
-        var changed = false
-        repaired.tracks = database.tracks.map { track in
+    func repairingStaleMatroskaTracks(in tracks: [LocalMusicTrack], extractsAlbumArt: Bool) async -> [LocalMusicTrack] {
+        tracks.map { track in
             guard MatroskaFLACSupport.isMatroska(track.url),
                   fileManager.fileExists(atPath: track.path)
             else {
@@ -875,21 +877,18 @@ final class LocalMusicLibrary {
             }
 
             let needsMetadataRepair = track.channelCount <= 0
-            let needsArtworkRepair = database.settings.extractsAlbumArt
+            let needsArtworkRepair = extractsAlbumArt
                 && track.artworkPath == legacyMatroskaArtworkURL(for: track.url).path
             guard needsMetadataRepair || needsArtworkRepair else {
                 return track
             }
 
-            changed = true
             return matroskaMetadata(
                 for: track.url,
                 rootPath: track.rootPath,
-                extractsAlbumArt: database.settings.extractsAlbumArt
+                extractsAlbumArt: extractsAlbumArt
             )
         }
-
-        return changed ? repaired : database
     }
 
     private func repairMissingTrackIndexMetadata(in database: LocalMusicDatabase) -> LocalMusicDatabase {

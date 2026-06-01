@@ -148,7 +148,7 @@ enum MatroskaAudioProbeError: LocalizedError, Equatable {
         case .noAudioStream:
             "This Matroska file does not contain an audio stream."
         case .unsupportedAudioCodec(let codec):
-            "Orbisonic supports MKV/MKA audio streams that are FLAC or PCM. This file reports \(codec.isEmpty ? "no supported audio codec" : codec)."
+            "Orbisonic supports MKV/MKA audio streams that are FLAC, PCM, or Dolby/DTS surround. This file reports \(codec.isEmpty ? "no supported audio codec" : codec)."
         }
     }
 }
@@ -236,6 +236,12 @@ struct MatroskaAudioProbe {
             score += 200
         } else if codec.hasPrefix("pcm_") {
             score += 150
+        } else if codec == "truehd" || codec == "mlp" {
+            score += 100
+        } else if codec == "eac3" {
+            score += 60
+        } else if codec == "ac3" || codec == "dts" || codec == "dca" {
+            score += 40
         }
         score += (stream.channels ?? 0) * 10
         score += Int(stream.bitDepth)
@@ -252,7 +258,20 @@ struct MatroskaAudioProbe {
         if codec.hasPrefix("pcm_") {
             return isAuroStreamTitle(title) ? "Auro-3D PCM" : "PCM"
         }
-        return codec.isEmpty ? "Unknown" : codec.uppercased()
+        switch codec {
+        case "ac3":
+            return "Dolby Digital (AC-3)"
+        case "eac3":
+            return "Dolby Digital Plus (E-AC-3)"
+        case "truehd":
+            return "Dolby TrueHD"
+        case "mlp":
+            return "MLP"
+        case "dts", "dca":
+            return "DTS"
+        default:
+            return codec.isEmpty ? "Unknown" : codec.uppercased()
+        }
     }
 
     private static func isAuroStreamTitle(_ title: String) -> Bool {
@@ -439,8 +458,17 @@ private struct FFProbeStream: Decodable {
 
     var isSupportedOrbisonicAudio: Bool {
         let codec = codecName?.lowercased() ?? ""
-        return codec == "flac" || codec.hasPrefix("pcm_")
+        return codec == "flac"
+            || codec.hasPrefix("pcm_")
+            || FFProbeStream.decodableSurroundBedCodecs.contains(codec)
     }
+
+    // Lossy/lossless surround codecs ffmpeg decodes to a PCM channel bed. We do
+    // not render Dolby Atmos / DTS:X objects -- the decoder emits the underlying
+    // 5.1/7.1 bed, which the sphere matrix then spatializes.
+    static let decodableSurroundBedCodecs: Set<String> = [
+        "ac3", "eac3", "truehd", "mlp", "dts", "dca"
+    ]
 
     var bitDepth: UInt32 {
         if let raw = bitsPerRawSample.flatMap(UInt32.init), raw > 0 {

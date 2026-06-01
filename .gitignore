@@ -24,3 +24,7 @@ dist/
 .env
 .env.*
 .local/
+
+# Bundled FFmpeg helper tools (fetched via scripts/fetch-ffmpeg-tools.sh, not committed)
+Sources/Orbisonic/Resources/Tools/ffmpeg
+Sources/Orbisonic/Resources/Tools/ffprobe

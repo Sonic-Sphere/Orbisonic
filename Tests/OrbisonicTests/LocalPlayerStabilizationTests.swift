@@ -679,6 +679,76 @@ final class LocalPlayerStabilizationTests: XCTestCase {
         )
     }
 
+    func testExceedsFullPrepareBudgetOnlyRefusesConcreteOverBudget() {
+        let cap = 100
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: nil, maxBytes: cap),
+            "Unknown estimate must not be refused"
+        )
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap - 1, maxBytes: cap),
+            "Under budget must not be refused"
+        )
+        XCTAssertFalse(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap, maxBytes: cap),
+            "Exactly at budget must not be refused"
+        )
+        XCTAssertTrue(
+            PreparedPCMPolicy.exceedsFullPrepareBudget(estimatedDecodedBytes: cap + 1, maxBytes: cap),
+            "Over budget must be refused"
+        )
+    }
+
+    func testDefaultMaxFullPreparedPCMBytesScalesWithInstalledRAM() {
+        struct StubMemory: SystemMemoryProviding {
+            let total: Int
+            func snapshot() -> SystemMemorySnapshot {
+                SystemMemorySnapshot(availableBytes: total, totalBytes: total)
+            }
+        }
+        let eightGiB = 8 * 1_024 * 1_024 * 1_024
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: eightGiB)),
+            Int(Double(eightGiB) * PreparedPCMPolicy.fullPreparePhysicalMemoryFraction)
+        )
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: 0)),
+            PreparedPCMPolicy.unknownMemoryFullPreparedPCMBytes,
+            "Unknown reading must fall back, not refuse everything"
+        )
+        XCTAssertEqual(
+            PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes(provider: StubMemory(total: 100 * 1_024 * 1_024)),
+            PreparedPCMPolicy.minFullPreparedPCMBytes,
+            "Tiny machine still honors the floor"
+        )
+    }
+
+    func testLoadRefusesFileExceedingInjectedPrepareBudget() throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+
+        let audioURL = fixture.directory.appendingPathComponent("oversized.wav")
+        try Self.writeSilentAudioFile(to: audioURL, frames: 48_000)
+        let loader = AudioFileLoader(maxFullPreparedPCMBytes: 1)
+
+        XCTAssertThrowsError(try loader.load(url: audioURL)) { error in
+            guard case AudioFileLoaderError.fileTooLargeToPrepare = error else {
+                XCTFail("Expected fileTooLargeToPrepare, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testLoadAllowsFileWithinDefaultPrepareBudget() throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+
+        let audioURL = fixture.directory.appendingPathComponent("within-budget.wav")
+        try Self.writeSilentAudioFile(to: audioURL, frames: 48_000)
+
+        XCTAssertNoThrow(try AudioFileLoader().load(url: audioURL))
+    }
+
     @MainActor
     func testAdjacentFullPCMPreloadIsDisabledByDefault() {
         let model = OrbisonicViewModel(localAudioLoader: Self.delayedLoader(delays: [:]))
@@ -1712,9 +1782,72 @@ final class LocalPlayerStabilizationTests: XCTestCase {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
 
+
         XCTAssertEqual(model.currentFileURL?.path, path)
         XCTAssertFalse(model.isLocalFileLoading)
         XCTAssertNil(model.pendingSessionQueueIndex)
+    }
+
+    @MainActor
+    func testNextTrackPreloadPreparesNextWhenBudgetAllows() async throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.directory.appendingPathComponent("first.wav")
+        let nextURL = fixture.directory.appendingPathComponent("next.wav")
+        try Self.writeSilentAudioFile(to: firstURL, frames: 48_000)
+        try Self.writeSilentAudioFile(to: nextURL, frames: 48_000)
+
+        let model = OrbisonicViewModel(
+            systemMemoryProvider: StubMemoryProvider(availableBytes: 16_000_000_000, totalBytes: 32_000_000_000)
+        )
+        model.setSourceModeForTesting(.filePlayback)
+        model.replaceLocalMusicQueueForTesting(
+            tracks: [Self.track(url: firstURL), Self.track(url: nextURL)],
+            currentIndex: 0,
+            selectedIndex: 0
+        )
+        try await model.loadQueueIndexForTesting(0, isPlaying: true)
+
+        model.preloadNextTrackEnabled = true
+        await model.awaitNextTrackPreloadForTesting()
+
+        XCTAssertTrue(model.hasPreparedLocalFileForTesting(path: nextURL.path))
+        XCTAssertEqual(model.nextTrackPreloadStatus, .ready)
+    }
+
+    @MainActor
+    func testNextTrackPreloadSkipsWhenMemoryIsTight() async throws {
+        let fixture = try TemporaryLocalMusicFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.directory.appendingPathComponent("first.wav")
+        let nextURL = fixture.directory.appendingPathComponent("next.wav")
+        try Self.writeSilentAudioFile(to: firstURL, frames: 48_000)
+        try Self.writeSilentAudioFile(to: nextURL, frames: 48_000)
+
+        let model = OrbisonicViewModel(
+            systemMemoryProvider: StubMemoryProvider(availableBytes: 1_024, totalBytes: 32_000_000_000)
+        )
+        model.setSourceModeForTesting(.filePlayback)
+        model.replaceLocalMusicQueueForTesting(
+            tracks: [Self.track(url: firstURL), Self.track(url: nextURL)],
+            currentIndex: 0,
+            selectedIndex: 0
+        )
+        try await model.loadQueueIndexForTesting(0, isPlaying: true)
+
+        model.preloadNextTrackEnabled = true
+        await model.awaitNextTrackPreloadForTesting()
+
+        XCTAssertFalse(model.hasPreparedLocalFileForTesting(path: nextURL.path))
+        XCTAssertEqual(model.nextTrackPreloadStatus, .skippedLowMemory)
+    }
+}
+
+private struct StubMemoryProvider: SystemMemoryProviding {
+    let availableBytes: Int
+    let totalBytes: Int
+    func snapshot() -> SystemMemorySnapshot {
+        SystemMemorySnapshot(availableBytes: availableBytes, totalBytes: totalBytes)
     }
 }
 

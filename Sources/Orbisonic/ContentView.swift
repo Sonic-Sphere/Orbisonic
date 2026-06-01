@@ -879,6 +879,33 @@ private struct LocalMusicThumbnailView: View {
     }
 }
 
+private struct ActivityBanner: View {
+    let activity: PlaybackActivity
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let progress = activity.clampedProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 90)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(activity.label)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
+        .shadow(radius: 12, y: 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(activity.label)
+    }
+}
+
 struct ContentView: View {
     @StateObject private var model = OrbisonicViewModel()
     @AppStorage("Orbisonic.hasConfirmedLoopbackSetup") private var hasConfirmedLoopbackSetup = false
@@ -925,6 +952,14 @@ struct ContentView: View {
         appShell
             .padding(24)
             .frame(minWidth: 1_220, minHeight: 780, alignment: .topLeading)
+            .overlay(alignment: .top) {
+                if model.activity.isBusy {
+                    ActivityBanner(activity: model.activity)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: model.activity)
             .background(
                 ZStack {
                     LinearGradient(
@@ -2609,6 +2644,14 @@ struct ContentView: View {
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if model.preloadNextTrackEnabled {
+                    Text("Next: \(model.nextTrackPreloadDisplayLabel ?? "\u{2014}") \u{2014} \(model.nextTrackPreloadStatus.displayLabel)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LabTheme.textSoft)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
                 if let badge = model.pureSphericalLosslessBadgePresentation {
                     pureSphericalLosslessBadge(badge)
                 }
@@ -3577,8 +3620,38 @@ struct ContentView: View {
                 )
 
             localMusicSortMenu
-                .frame(width: 170)
+                .frame(width: 150)
+
+            localMusicChannelMenu
+                .frame(width: 120)
         }
+    }
+
+    private var localMusicChannelMenu: some View {
+        Menu {
+            Button("All Channels") {
+                model.localMusicChannelFilter = 0
+            }
+            ForEach(model.availableLocalMusicChannelCounts, id: \.self) { count in
+                Button("\(count) ch") {
+                    model.localMusicChannelFilter = count
+                }
+            }
+        } label: {
+            HStack {
+                Text("CH")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LabTheme.textSoft)
+                Spacer()
+                Text(model.localMusicChannelFilter == 0 ? "All" : "\(model.localMusicChannelFilter)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(LabTheme.text)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(LabTheme.cyan)
+            }
+        }
+        .buttonStyle(LabButtonStyle())
     }
 
     private var localMusicSortMenu: some View {
@@ -4024,6 +4097,17 @@ struct ContentView: View {
                         isOn: $model.isLocalGaplessCompressedTrimEnabled,
                         isEnabled: model.isLocalGaplessSchedulerEnabled
                     )
+
+                    settingsToggleRow(
+                        title: "Preload next track",
+                        isOn: $model.preloadNextTrackEnabled,
+                        helpText: "Decode the next queued track into memory so skips are instant. Works for any track; skipped automatically when memory is tight."
+                    )
+
+                    Text(model.nextTrackPreloadCaptionText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LabTheme.textSoft)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

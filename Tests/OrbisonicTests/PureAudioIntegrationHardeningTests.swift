@@ -3,7 +3,10 @@ import Foundation
 import XCTest
 
 final class PureAudioIntegrationHardeningTests: XCTestCase {
-    func testLegacyLocalFileProductionGateBlocksMismatchedFileWhenRendererSelected() {
+    func testLegacyLocalFileProductionGateAllowsMismatchedFileViaManagedImportWhenRendererSelected() {
+        // A resolvable sample-rate mismatch is no longer hard-blocked: playback
+        // prepares an offline managed session-rate copy before the engine sees
+        // it, so the gate admits the file with a managed-import notice.
         let admission = LegacyLocalFileProductionGate.admission(
             for: localSource(sampleRate: 44_100, channels: 2),
             monitorRoute: desktopRoute(sampleRate: 48_000),
@@ -13,9 +16,10 @@ final class PureAudioIntegrationHardeningTests: XCTestCase {
             isSessionRunning: true
         )
 
-        guard case .blocked(let reason) = admission else {
-            return XCTFail("Expected mismatched production file to be blocked.")
+        guard case .allowed(let reason) = admission else {
+            return XCTFail("Expected mismatched production file to be admitted via managed import.")
         }
+        XCTAssertTrue(reason.contains("managed"), reason)
         XCTAssertTrue(reason.contains("This file is 44.1 kHz"), reason)
         XCTAssertTrue(reason.contains("Current Orbisonic Dante session is 48 kHz"), reason)
     }

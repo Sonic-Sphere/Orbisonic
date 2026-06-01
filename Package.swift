@@ -48,7 +48,9 @@ let package = Package(
             name: "Orbisonic",
             dependencies: ["AudioContracts", "AudioImport", "AudioCore"],
             exclude: [
-                "Resources/AppLogos/README.md"
+                "Resources/AppLogos/README.md",
+                "Resources/Tools/ffmpeg",
+                "Resources/Tools/ffprobe"
             ],
             resources: [
                 .process("Resources")

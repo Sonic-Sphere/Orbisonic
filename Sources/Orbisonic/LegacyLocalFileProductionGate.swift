@@ -1,6 +1,7 @@
 import AudioContracts
 import AudioCore
 import AudioImport
+import CoreAudio
 import Foundation
 
 struct LegacyLocalFileSourceDescription: Equatable {
@@ -49,7 +50,10 @@ struct LegacyLocalFileProductionGate {
         systemOutputRoute: OutputRouteInfo,
         rendererRoute: OutputRouteInfo,
         rendererOutputSelected: Bool,
-        isSessionRunning: Bool = true
+        isSessionRunning: Bool = true,
+        coerceDesktopMonitorSampleRate: (AudioDeviceID, Double) -> Double? = { deviceID, targetRate in
+            OutputDeviceSampleRate.coerce(deviceID: deviceID, to: targetRate)
+        }
     ) -> LegacyLocalFileProductionAdmission {
         guard rendererOutputSelected else {
             return .allowed(
@@ -102,7 +106,13 @@ struct LegacyLocalFileProductionGate {
 
         let routeValidator = RouteCapabilityValidator()
         let danteCapability = routeValidator.danteRouteCapability(from: rendererRoute)
-        let desktopDescriptor = routeValidator.outputRouteDescriptor(from: desktopRoute)
+        let coercedDesktopRoute: OutputRouteInfo
+        if let resolvedRate = coerceDesktopMonitorSampleRate(desktopRoute.deviceID, sessionRate.hertz) {
+            coercedDesktopRoute = desktopRoute.withNominalSampleRate(resolvedRate)
+        } else {
+            coercedDesktopRoute = desktopRoute
+        }
+        let desktopDescriptor = routeValidator.outputRouteDescriptor(from: coercedDesktopRoute)
         let layout = AudioChannelLayoutDescriptor.fallbackLayout(channelCount: source.channelCount)
         let sourceDescriptor = SourceDescriptor(
             id: source.id,
@@ -153,10 +163,16 @@ struct LegacyLocalFileProductionGate {
             return .allowed(
                 reason: "Local file matches the Pure Audio production session rate \(formatSampleRate(sessionRate.hertz))."
             )
-        case .requiresOfflineImport(let reason, _):
-            return .blocked(reason: reason)
+        case .requiresOfflineImport(let reason, let targetSampleRate):
+            // Resolvable mismatch: playback converts an offline managed copy to
+            // the session rate before the engine sees it, so production is allowed.
+            return .allowed(
+                reason: "Preparing a managed \(formatSampleRate(targetSampleRate.hertz)) copy for Pure Audio production. \(reason)"
+            )
         case .canRestartStoppedSessionAtFileRate(let reason, _):
-            return .blocked(reason: reason)
+            return .allowed(
+                reason: "Preparing a managed session-rate copy for Pure Audio production. \(reason)"
+            )
         case .unsupported(let reason), .desktopPreviewOnly(let reason):
             return .blocked(reason: reason)
         }

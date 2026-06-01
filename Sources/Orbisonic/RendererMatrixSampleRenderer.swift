@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 
 enum RendererMatrixSampleRenderer {
@@ -167,13 +168,17 @@ enum RendererMatrixSampleRenderer {
 
         for inputIndex in 0..<matrix.inputCount {
             let gains = matrix.gains[inputIndex]
-            for outputIndex in 0..<outputLimit {
-                guard gains.indices.contains(outputIndex) else { continue }
-                let gain = Float(gains[outputIndex])
-                guard abs(gain) > 0.000_001 else { continue }
+            inputSamples[inputIndex].withUnsafeBufferPointer { inputBuffer in
+                guard let input = inputBuffer.baseAddress else { return }
+                for outputIndex in 0..<outputLimit {
+                    guard gains.indices.contains(outputIndex) else { continue }
+                    var gain = Float(gains[outputIndex])
+                    guard abs(gain) > 0.000_001 else { continue }
 
-                for frame in 0..<frames {
-                    outputBuffers[outputIndex][frame] += inputSamples[inputIndex][frame] * gain
+                    outputBuffers[outputIndex].withUnsafeMutableBufferPointer { outputBuffer in
+                        guard let output = outputBuffer.baseAddress else { return }
+                        vDSP_vsma(input, 1, &gain, output, 1, output, 1, vDSP_Length(frames))
+                    }
                 }
             }
         }
@@ -211,11 +216,12 @@ enum RendererMatrixSampleRenderer {
             let gains = matrix.gains[inputIndex]
             for outputIndex in 0..<outputLimit {
                 guard gains.indices.contains(outputIndex) else { continue }
-                let gain = Float(gains[outputIndex])
+                var gain = Float(gains[outputIndex])
                 guard abs(gain) > 0.000_001 else { continue }
 
-                for frame in 0..<frames {
-                    outputBuffers[outputIndex][frame] += input[frame] * gain
+                outputBuffers[outputIndex].withUnsafeMutableBufferPointer { outputBuffer in
+                    guard let output = outputBuffer.baseAddress else { return }
+                    vDSP_vsma(input, 1, &gain, output, 1, output, 1, vDSP_Length(frames))
                 }
             }
         }
@@ -254,11 +260,12 @@ enum RendererMatrixSampleRenderer {
             let gains = matrix.gains[inputIndex]
             for outputIndex in 0..<outputLimit {
                 guard gains.indices.contains(outputIndex) else { continue }
-                let gain = Float(gains[outputIndex])
+                var gain = Float(gains[outputIndex])
                 guard abs(gain) > 0.000_001 else { continue }
 
-                for frame in 0..<frames {
-                    outputBuffers[outputIndex][frame] += input[frame] * gain
+                outputBuffers[outputIndex].withUnsafeMutableBufferPointer { outputBuffer in
+                    guard let output = outputBuffer.baseAddress else { return }
+                    vDSP_vsma(input, 1, &gain, output, 1, output, 1, vDSP_Length(frames))
                 }
             }
         }

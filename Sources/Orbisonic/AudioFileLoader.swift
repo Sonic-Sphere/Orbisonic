@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreAudio
 import CoreAudioTypes
@@ -24,6 +25,23 @@ struct LoadedAudioFile: @unchecked Sendable {
             channelCount: monoBuffers.count
         ) ?? 0
     }
+
+    // Rebind the identity URL without touching decoded audio. Used after an
+    // offline managed transcode so the displayed/highlighted file stays the
+    // user's original path even though the decoded copy came from a cache CAF.
+    func withURL(_ newURL: URL) -> LoadedAudioFile {
+        LoadedAudioFile(
+            url: newURL,
+            monoFormat: monoFormat,
+            monitorFormat: monitorFormat,
+            sampleRate: sampleRate,
+            frameCount: frameCount,
+            layout: layout,
+            metadata: metadata,
+            monoBuffers: monoBuffers,
+            monitorBuffer: monitorBuffer
+        )
+    }
 }
 
 enum PreparedPCMPolicy {
@@ -32,6 +50,34 @@ enum PreparedPCMPolicy {
     static let maxAdjacentFullPreloadPCMBytes = 0
     static let maxPreparedCacheEntries = 2
     static let maxPreparedCacheBytes = maxFullPreparedPCMBytes
+
+    /// Fraction of installed physical RAM a single full-prepare load may occupy.
+    static let fullPreparePhysicalMemoryFraction = 0.5
+    /// Floor so normal files are never refused on small or odd memory readings.
+    static let minFullPreparedPCMBytes = 512 * 1_024 * 1_024
+    /// Used when the memory reading is unavailable (total == 0).
+    static let unknownMemoryFullPreparedPCMBytes = 2 * 1_024 * 1_024 * 1_024
+
+    /// Dynamic full-prepare cap derived from installed RAM. Computed once when
+    /// the loader is constructed; installed physical memory does not change at runtime.
+    static func defaultMaxFullPreparedPCMBytes(
+        provider: SystemMemoryProviding = HostSystemMemoryProvider()
+    ) -> Int {
+        let total = provider.snapshot().totalBytes
+        guard total > 0 else { return unknownMemoryFullPreparedPCMBytes }
+        return max(Int(Double(total) * fullPreparePhysicalMemoryFraction), minFullPreparedPCMBytes)
+    }
+
+    /// Returns true only when there is a concrete estimate that exceeds the cap.
+    /// Unknown estimates (nil) return false so unknown-size files keep their
+    /// existing behavior rather than being refused outright.
+    static func exceedsFullPrepareBudget(
+        estimatedDecodedBytes: Int?,
+        maxBytes: Int = Self.maxFullPreparedPCMBytes
+    ) -> Bool {
+        guard let estimatedDecodedBytes else { return false }
+        return estimatedDecodedBytes > maxBytes
+    }
 
     static func estimatedDecodedPCMBytes(
         durationSeconds: TimeInterval,
@@ -84,6 +130,7 @@ enum AudioFileLoaderError: LocalizedError {
     case unsupportedAudioFile(String, String)
     case unsupportedChannelCount(UInt32, maxSupported: Int)
     case fileTooLarge
+    case fileTooLargeToPrepare(estimatedBytes: Int?, maxBytes: Int)
     case sourceBufferAllocationFailed
     case layoutCreationFailed(UInt32)
     case surroundFormatCreationFailed(Double, UInt32)
@@ -106,6 +153,8 @@ enum AudioFileLoaderError: LocalizedError {
                 : "Orbisonic supports up to \(maxSupported) source channels in this build. This file has \(count) channels."
         case .fileTooLarge:
             "This build reads the file into memory and the file is too large for that path."
+        case .fileTooLargeToPrepare(let estimatedBytes, let maxBytes):
+            "This track needs about \(estimatedBytes.map { PreparedPCMPolicy.formatMiB($0) } ?? "an unknown amount") of memory to load, which exceeds this device's \(PreparedPCMPolicy.formatMiB(maxBytes)) limit. Large-file streaming isn't enabled in this build."
         case .sourceBufferAllocationFailed:
             "Unable to allocate the source audio buffer."
         case .layoutCreationFailed(let channelCount):
@@ -129,6 +178,12 @@ enum AudioFileLoaderError: LocalizedError {
 }
 
 final class AudioFileLoader {
+    private let maxFullPreparedPCMBytes: Int
+
+    init(maxFullPreparedPCMBytes: Int = PreparedPCMPolicy.defaultMaxFullPreparedPCMBytes()) {
+        self.maxFullPreparedPCMBytes = maxFullPreparedPCMBytes
+    }
+
     func load(
         url: URL,
         forceFFmpegFLACFallback: Bool = false,
@@ -324,7 +379,8 @@ final class AudioFileLoader {
             channelCount: Int(channelCount)
         )
         let estimatedPreparedBytesText = estimatedPreparedBytes.map(String.init) ?? "unknown"
-        let fullPrepareWithinBudget = estimatedPreparedBytes.map { $0 <= PreparedPCMPolicy.maxFullPreparedPCMBytes } ?? false
+        let maxFullPreparedBytes = maxFullPreparedPCMBytes
+        let fullPrepareWithinBudget = estimatedPreparedBytes.map { $0 <= maxFullPreparedBytes } ?? false
         let fullPrepareReason = fullPrepareWithinBudget
             ? "within selected-track full prepare budget"
             : "streaming required but fallback full prepare used for selected track"
@@ -333,15 +389,27 @@ final class AudioFileLoader {
             fileURL: url,
             extra: [
                 "estimatedDecodedBytes=\(estimatedPreparedBytesText)",
-                "maxFullPreparedPCMBytes=\(PreparedPCMPolicy.maxFullPreparedPCMBytes)",
+                "maxFullPreparedPCMBytes=\(maxFullPreparedBytes)",
                 "allowed=\(fullPrepareWithinBudget)",
                 "reason=\"\(fullPrepareReason)\""
             ]
         )
-        if !fullPrepareWithinBudget {
+        if PreparedPCMPolicy.exceedsFullPrepareBudget(
+            estimatedDecodedBytes: estimatedPreparedBytes,
+            maxBytes: maxFullPreparedBytes
+        ) {
+            AppLogger.shared.error(
+                category: "loader",
+                "Refusing oversized full prepare file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(maxFullPreparedBytes) reason=\"\(fullPrepareReason)\""
+            )
+            throw AudioFileLoaderError.fileTooLargeToPrepare(
+                estimatedBytes: estimatedPreparedBytes,
+                maxBytes: maxFullPreparedBytes
+            )
+        } else if !fullPrepareWithinBudget {
             AppLogger.shared.notice(
                 category: "loader",
-                "Full prepared PCM estimate exceeds preferred budget file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(PreparedPCMPolicy.maxFullPreparedPCMBytes) reason=\"\(fullPrepareReason)\""
+                "Full prepared PCM estimate exceeds preferred budget file=\(url.lastPathComponent) estimatedBytes=\(estimatedPreparedBytesText) maxBytes=\(maxFullPreparedBytes) reason=\"\(fullPrepareReason)\""
             )
         }
 
@@ -643,10 +711,16 @@ final class AudioFileLoader {
             let input = inputChannels[0]
             let left = outputChannels[0]
             let right = outputChannels[1]
-            for frameIndex in 0..<frameCount {
-                let sample = input[frameIndex]
-                left[frameIndex] += sample * coefficient.left
-                right[frameIndex] += sample * coefficient.right
+            let frames = vDSP_Length(frameCount)
+            // vDSP_vsma: dst = input * gain + dst (in place). Skip zero-gain sides
+            // (adding input * 0 contributes exactly 0 to the running sum).
+            if coefficient.left != 0 {
+                var gain = coefficient.left
+                vDSP_vsma(input, 1, &gain, left, 1, left, 1, frames)
+            }
+            if coefficient.right != 0 {
+                var gain = coefficient.right
+                vDSP_vsma(input, 1, &gain, right, 1, right, 1, frames)
             }
         }
     }
