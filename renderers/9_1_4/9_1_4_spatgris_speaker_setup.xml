@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- 9.1.4 -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Dolby 9.1.4 basis: 7.1.4 plus left/right wide speakers. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- L: az=-30, el=0 -->
+    <POSITION X="-0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_1>
+  <SPEAKER_2 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- R: az=30, el=0 -->
+    <POSITION X="0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_2>
+  <SPEAKER_3 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- C: az=0, el=0 -->
+    <POSITION X="0.0000000000" Y="1.0000000000" Z="0.0000000000" />
+  </SPEAKER_3>
+  <SPEAKER_4 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="1">
+    <!-- LFE: az=-45, el=0, direct out only -->
+    <POSITION X="-1.0000000000" Y="1.0000000000" Z="0.0000000000" />
+  </SPEAKER_4>
+  <SPEAKER_5 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Lw: az=-60, el=0 -->
+    <POSITION X="-0.8660254038" Y="0.5000000000" Z="0.0000000000" />
+  </SPEAKER_5>
+  <SPEAKER_6 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rw: az=60, el=0 -->
+    <POSITION X="0.8660254038" Y="0.5000000000" Z="0.0000000000" />
+  </SPEAKER_6>
+  <SPEAKER_7 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Lss: az=-90, el=0 -->
+    <POSITION X="-1.0000000000" Y="0.0000000000" Z="0.0000000000" />
+  </SPEAKER_7>
+  <SPEAKER_8 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rss: az=90, el=0 -->
+    <POSITION X="1.0000000000" Y="0.0000000000" Z="0.0000000000" />
+  </SPEAKER_8>
+  <SPEAKER_9 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Lrs: az=-135, el=0 -->
+    <POSITION X="-0.7071067812" Y="-0.7071067812" Z="0.0000000000" />
+  </SPEAKER_9>
+  <SPEAKER_10 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rrs: az=135, el=0 -->
+    <POSITION X="0.7071067812" Y="-0.7071067812" Z="0.0000000000" />
+  </SPEAKER_10>
+  <SPEAKER_11 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ltf: az=-45, el=45 -->
+    <POSITION X="-0.5000000000" Y="0.5000000000" Z="0.7071067812" />
+  </SPEAKER_11>
+  <SPEAKER_12 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rtf: az=45, el=45 -->
+    <POSITION X="0.5000000000" Y="0.5000000000" Z="0.7071067812" />
+  </SPEAKER_12>
+  <SPEAKER_13 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ltr: az=-135, el=45 -->
+    <POSITION X="-0.5000000000" Y="-0.5000000000" Z="0.7071067812" />
+  </SPEAKER_13>
+  <SPEAKER_14 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rtr: az=135, el=45 -->
+    <POSITION X="0.5000000000" Y="-0.5000000000" Z="0.7071067812" />
+  </SPEAKER_14>
+</SPEAKER_SETUP>
