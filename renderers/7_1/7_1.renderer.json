@@ -1,0 +1,646 @@
+{
+  "schemaVersion": 1,
+  "layout": "7_1",
+  "displayName": "Dolby 7.1",
+  "family": "dolby",
+  "description": "7.1 separates SIDE surrounds (\u00b190\u00b0) from REAR surrounds (\u00b1135\u00b0) \u2014 the defining upgrade over 5.1. On the dome the sides and rears land on distinct speaker regions. (This is exactly what the old count-based Auro mapping got wrong, collapsing sides and rears together.)",
+  "channelCount": 8,
+  "lfeChannelCount": 1,
+  "coordinateConvention": {
+    "x": "listener-right",
+    "y": "front",
+    "z": "up",
+    "azimuth": "degrees from front, positive to the right",
+    "radius": "unit (LFE excluded)"
+  },
+  "algorithm": {
+    "name": "cosine-power directional panning with capped power normalization",
+    "version": "1.0.0",
+    "summary": "Each non-LFE source channel is aimed in its real-world direction and spread across the nearest dome speakers by angular proximity, then loudness-normalized with a per-speaker cap so the image is even and enveloping. LFE goes to the sub.",
+    "formula": "w_i = max(0, d \u00b7 \u015d_i)^p over the 30 dome speakers; iteratively clip any w_i to a_max = sqrt(cap) and renormalize to unit L2 power (sum w_i^2 = 1); LFE channels map to the sub at unity.",
+    "parameters": {
+      "cosineSharpness": {
+        "value": 3.0,
+        "description": "Focus of each channel's spread. Higher = tighter (a channel drives fewer, closer dome speakers); lower = broader and more diffuse. At 3.0 each channel lights ~4-6 nearest speakers."
+      },
+      "perSpeakerPowerCap": {
+        "value": 0.22,
+        "unit": "fraction of a channel's power",
+        "description": "No single dome speaker may carry more than this share of a channel's power. It forces every channel to spread across several speakers, so images feel enveloping instead of pin-point, and no one speaker dominates."
+      },
+      "normalization": {
+        "value": "unitL2Power",
+        "description": "Each channel's gains are scaled so its total power sums to 1. Spreading a channel across many speakers is therefore neither louder nor quieter than putting it on one speaker \u2014 loudness stays constant as geometry changes."
+      },
+      "capIterations": {
+        "value": 6,
+        "description": "How many clip-then-renormalize passes enforce the per-speaker cap. 6 is plenty for the cap to settle."
+      },
+      "lfeRouting": {
+        "output": 31,
+        "outputIndex": 30,
+        "gain": 1.0,
+        "description": "LFE / direct-out channels skip the dome panning entirely and go straight to the sub (output 31) at unity gain."
+      }
+    }
+  },
+  "sphereTarget": {
+    "id": "fey-30.1",
+    "fullRangeOutputs": 30,
+    "lfeOutput": 31,
+    "speakersRef": "sphere-fey-30.1.json",
+    "speakersSha256": "0aec319a8dd0431e32191332ebd53f247a91b30a7ef54be7a3df4429893d9393"
+  },
+  "provenance": {
+    "geometrySource": {
+      "repo": "Sonic-Sphere/spat-speaker-layouts",
+      "path": "layout_geometry.csv",
+      "commit": "8d20f7f87dbb688cda5a88c1eccf292c5390d338"
+    },
+    "generator": "gen_renderers.py",
+    "algorithm": "cosine-power v1.0.0"
+  },
+  "channels": [
+    {
+      "index": 0,
+      "patch": 1,
+      "label": "L",
+      "role": "frontLeft",
+      "azimuthDeg": -30.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": -0.5,
+        "y": 0.8660254038,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 1,
+      "patch": 2,
+      "label": "R",
+      "role": "frontRight",
+      "azimuthDeg": 30.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": 0.5,
+        "y": 0.8660254038,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 2,
+      "patch": 3,
+      "label": "C",
+      "role": "center",
+      "azimuthDeg": 0.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 3,
+      "patch": 4,
+      "label": "LFE",
+      "role": "lfe",
+      "azimuthDeg": -45.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": -1.0,
+        "y": 1.0,
+        "z": 0.0
+      },
+      "lfe": true
+    },
+    {
+      "index": 4,
+      "patch": 5,
+      "label": "Lss",
+      "role": "sideLeft",
+      "azimuthDeg": -90.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": -1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 5,
+      "patch": 6,
+      "label": "Rss",
+      "role": "sideRight",
+      "azimuthDeg": 90.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 6,
+      "patch": 7,
+      "label": "Lrs",
+      "role": "rearLeft",
+      "azimuthDeg": -135.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": -0.7071067812,
+        "y": -0.7071067812,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 7,
+      "patch": 8,
+      "label": "Rrs",
+      "role": "rearRight",
+      "azimuthDeg": 135.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": 0.7071067812,
+        "y": -0.7071067812,
+        "z": 0.0
+      },
+      "lfe": false
+    }
+  ],
+  "kernel": {
+    "outputCount": 31,
+    "lfeOutputIndex": 30,
+    "type": "inputMajorSparse",
+    "columns": [
+      {
+        "channelIndex": 0,
+        "label": "L",
+        "lfe": false,
+        "gains": [
+          [
+            6,
+            0.471443
+          ],
+          [
+            12,
+            0.471443
+          ],
+          [
+            17,
+            0.471443
+          ],
+          [
+            11,
+            0.337305
+          ],
+          [
+            23,
+            0.293107
+          ],
+          [
+            28,
+            0.281866
+          ],
+          [
+            22,
+            0.188575
+          ],
+          [
+            1,
+            0.097708
+          ],
+          [
+            5,
+            0.070167
+          ],
+          [
+            18,
+            0.057455
+          ],
+          [
+            29,
+            0.019436
+          ],
+          [
+            7,
+            0.017751
+          ],
+          [
+            16,
+            0.006833
+          ],
+          [
+            10,
+            0.00427
+          ],
+          [
+            27,
+            0.00135
+          ]
+        ]
+      },
+      {
+        "channelIndex": 1,
+        "label": "R",
+        "lfe": false,
+        "gains": [
+          [
+            7,
+            0.471316
+          ],
+          [
+            12,
+            0.471316
+          ],
+          [
+            18,
+            0.471316
+          ],
+          [
+            13,
+            0.336201
+          ],
+          [
+            23,
+            0.292147
+          ],
+          [
+            29,
+            0.280943
+          ],
+          [
+            24,
+            0.194587
+          ],
+          [
+            1,
+            0.097388
+          ],
+          [
+            2,
+            0.069937
+          ],
+          [
+            17,
+            0.057266
+          ],
+          [
+            28,
+            0.019373
+          ],
+          [
+            6,
+            0.017693
+          ],
+          [
+            19,
+            0.006811
+          ],
+          [
+            8,
+            0.004256
+          ],
+          [
+            30,
+            0.001345
+          ]
+        ]
+      },
+      {
+        "channelIndex": 2,
+        "label": "C",
+        "lfe": false,
+        "gains": [
+          [
+            12,
+            0.469083
+          ],
+          [
+            23,
+            0.455539
+          ],
+          [
+            17,
+            0.447609
+          ],
+          [
+            18,
+            0.447609
+          ],
+          [
+            6,
+            0.223435
+          ],
+          [
+            7,
+            0.223435
+          ],
+          [
+            28,
+            0.153523
+          ],
+          [
+            29,
+            0.153523
+          ],
+          [
+            1,
+            0.151856
+          ],
+          [
+            11,
+            0.02522
+          ],
+          [
+            13,
+            0.02522
+          ],
+          [
+            24,
+            0.014176
+          ],
+          [
+            22,
+            0.012694
+          ],
+          [
+            2,
+            0.005348
+          ],
+          [
+            5,
+            0.005348
+          ]
+        ]
+      },
+      {
+        "channelIndex": 3,
+        "label": "LFE",
+        "lfe": true,
+        "gains": [
+          [
+            30,
+            1.0
+          ]
+        ]
+      },
+      {
+        "channelIndex": 4,
+        "label": "Lss",
+        "lfe": false,
+        "gains": [
+          [
+            11,
+            0.470576
+          ],
+          [
+            16,
+            0.470576
+          ],
+          [
+            22,
+            0.44888
+          ],
+          [
+            10,
+            0.445667
+          ],
+          [
+            15,
+            0.185361
+          ],
+          [
+            17,
+            0.180299
+          ],
+          [
+            6,
+            0.158546
+          ],
+          [
+            5,
+            0.155822
+          ],
+          [
+            27,
+            0.155822
+          ],
+          [
+            21,
+            0.106037
+          ],
+          [
+            28,
+            0.063043
+          ],
+          [
+            4,
+            0.034963
+          ]
+        ]
+      },
+      {
+        "channelIndex": 5,
+        "label": "Rss",
+        "lfe": false,
+        "gains": [
+          [
+            13,
+            0.470588
+          ],
+          [
+            19,
+            0.470588
+          ],
+          [
+            8,
+            0.446811
+          ],
+          [
+            24,
+            0.446811
+          ],
+          [
+            14,
+            0.185837
+          ],
+          [
+            18,
+            0.180762
+          ],
+          [
+            7,
+            0.158953
+          ],
+          [
+            2,
+            0.156222
+          ],
+          [
+            30,
+            0.156222
+          ],
+          [
+            25,
+            0.10631
+          ],
+          [
+            29,
+            0.063204
+          ],
+          [
+            3,
+            0.035052
+          ]
+        ]
+      },
+      {
+        "channelIndex": 6,
+        "label": "Lrs",
+        "lfe": false,
+        "gains": [
+          [
+            15,
+            0.474347
+          ],
+          [
+            16,
+            0.474347
+          ],
+          [
+            21,
+            0.474347
+          ],
+          [
+            10,
+            0.371152
+          ],
+          [
+            20,
+            0.313873
+          ],
+          [
+            9,
+            0.176002
+          ],
+          [
+            4,
+            0.164758
+          ],
+          [
+            27,
+            0.132233
+          ],
+          [
+            11,
+            0.081548
+          ],
+          [
+            26,
+            0.058671
+          ],
+          [
+            22,
+            0.052221
+          ],
+          [
+            5,
+            0.016529
+          ],
+          [
+            14,
+            0.003358
+          ],
+          [
+            25,
+            0.002083
+          ],
+          [
+            3,
+            0.000589
+          ]
+        ]
+      },
+      {
+        "channelIndex": 7,
+        "label": "Rrs",
+        "lfe": false,
+        "gains": [
+          [
+            14,
+            0.474361
+          ],
+          [
+            19,
+            0.474361
+          ],
+          [
+            25,
+            0.474361
+          ],
+          [
+            8,
+            0.371311
+          ],
+          [
+            20,
+            0.314008
+          ],
+          [
+            9,
+            0.176077
+          ],
+          [
+            3,
+            0.164829
+          ],
+          [
+            30,
+            0.13229
+          ],
+          [
+            13,
+            0.081583
+          ],
+          [
+            26,
+            0.058696
+          ],
+          [
+            24,
+            0.049091
+          ],
+          [
+            2,
+            0.016536
+          ],
+          [
+            15,
+            0.003359
+          ],
+          [
+            21,
+            0.002084
+          ],
+          [
+            4,
+            0.00059
+          ]
+        ]
+      }
+    ]
+  },
+  "checksums": {
+    "kernelSha256": "5e4308407562c3b9d4f2303097417a8f40ac4be1e267a91ae03f264668422919",
+    "geometrySha256": "ef13ba11b166c0106a2bf382f9cec3298e5bb75fdbe788c5cd8b2e531f3fd5a6"
+  },
+  "designNotes": "Distinct side vs rear placement is the whole point of 7.1; verify by ear that Lss images to your side and Lrs behind you.",
+  "codegenHint": "staticTable"
+}
