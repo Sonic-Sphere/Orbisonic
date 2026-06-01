@@ -187,6 +187,7 @@ final class AudioFileLoader {
     func load(
         url: URL,
         forceFFmpegFLACFallback: Bool = false,
+        selectedAudioStreamOrdinal: Int? = nil,
         debugTiming: DebugTimingContext? = nil
     ) throws -> LoadedAudioFile {
         let timing = debugTiming ?? DebugTimingLog.makeCommand(prefix: "audio-load")
@@ -256,7 +257,39 @@ final class AudioFileLoader {
         var tags = AudioMetadataBuilder.tags(for: url)
         try checkCancellation("after metadata tag read")
 
-        if MatroskaFLACSupport.isMatroska(url) {
+        if let ordinal = selectedAudioStreamOrdinal, ordinal > 0 {
+            // Multi-stream presentation selector picked a non-default audio stream.
+            // Decode that specific stream to CAF via ffmpeg (0:a:<ordinal>); the
+            // default/first stream keeps the fork's existing decode path untouched.
+            try checkCancellation("before multi-stream ffmpeg decode")
+            let containerDecodeStart = DispatchTime.now().uptimeNanoseconds
+            timing.log(
+                "container decode start",
+                fileURL: url,
+                extra: ["decoder=\"ffmpeg\"", "audioStreamOrdinal=\(ordinal)"]
+            )
+            let decodedURL = try FFmpegAudioDecoder().decodeToCAF(
+                url: url,
+                sourceDescription: "audio stream \(ordinal)",
+                audioStreamOrdinal: ordinal
+            )
+            try checkCancellation("after multi-stream ffmpeg decode")
+            timing.log(
+                "container decode end",
+                fileURL: url,
+                extra: [
+                    "decoder=\"ffmpeg\"",
+                    "audioStreamOrdinal=\(ordinal)",
+                    "containerDecodeMs=\(String(format: "%.1f", Double(DispatchTime.now().uptimeNanoseconds - containerDecodeStart) / 1_000_000.0))"
+                ]
+            )
+            readURL = decodedURL
+            temporaryDecodedURL = decodedURL
+            AppLogger.shared.notice(
+                category: "loader",
+                "Decoded selected audio stream ordinal=\(ordinal) for file=\(url.lastPathComponent)"
+            )
+        } else if MatroskaFLACSupport.isMatroska(url) {
             try checkCancellation("before Matroska probe")
             let containerDecodeStart = DispatchTime.now().uptimeNanoseconds
             timing.log("container decode start", fileURL: url, extra: ["container=\"Matroska\""])

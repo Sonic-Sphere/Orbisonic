@@ -768,10 +768,22 @@ final class OrbisonicViewModel: ObservableObject {
     @Published var sourceMetadata: AudioSourceMetadata?
     @Published private(set) var pendingLocalSourceMetadata: AudioSourceMetadata?
     @Published private(set) var pendingLocalAssetDescriptor: AudioAssetDescriptor?
+    /// Persistent descriptor for the currently-loaded/visible local track. Unlike
+    /// `pendingLocalAssetDescriptor` (cleared on commit), this survives so the renderer
+    /// tab's multi-stream selector can read the available presentations during playback.
+    @Published private(set) var visibleLocalAssetDescriptor: AudioAssetDescriptor?
+    /// User-chosen audio stream (ffprobe stream index) keyed by file path. Absent ⇒ preferred.
+    private var selectedLocalAudioPresentationStreamIndexByPath: [String: Int] = [:]
     @Published var loadedChannels: [SurroundChannel] = []
     @Published var statusMessage = "Load a surround file. The active macOS output route will appear below."
     @Published var loadedFileName = "No file loaded"
-    @Published private(set) var currentFileURL: URL?
+    @Published private(set) var currentFileURL: URL? {
+        didSet {
+            if currentFileURL == nil {
+                visibleLocalAssetDescriptor = nil
+            }
+        }
+    }
     @Published private(set) var pureSphericalLosslessState: PureSphericalLosslessState = .none
     @Published var lastError: String? {
         didSet {
@@ -930,7 +942,7 @@ final class OrbisonicViewModel: ObservableObject {
     @Published private(set) var sonicSphereMeterActive = false
 
     private let engine: OrbisonicEngine
-    private let localAudioLoader: @Sendable (URL, DebugTimingContext?) throws -> LoadedAudioFile
+    private let localAudioLoader: @Sendable (URL, Int?, DebugTimingContext?) throws -> LoadedAudioFile
     private let localMusicLibrary: LocalMusicLibrary
     private var localMusicBaseTracks: [LocalMusicTrack] = []
     private var localMusicMetadataOverlays: [String: LocalMusicMetadataOverlay] = [:]
@@ -1031,8 +1043,12 @@ final class OrbisonicViewModel: ObservableObject {
 
     init() {
         self.engine = OrbisonicEngine(audioGraphEnabled: !Self.isRunningUnitTests)
-        self.localAudioLoader = { url, debugTiming in
-            try AudioFileLoader().load(url: url, debugTiming: debugTiming)
+        self.localAudioLoader = { url, selectedAudioStreamOrdinal, debugTiming in
+            try AudioFileLoader().load(
+                url: url,
+                selectedAudioStreamOrdinal: selectedAudioStreamOrdinal,
+                debugTiming: debugTiming
+            )
         }
         self.localMusicLibrary = LocalMusicLibrary()
         self.preloadsFirstLocalMusicTrack = !Self.isRunningUnitTests
@@ -1061,7 +1077,7 @@ final class OrbisonicViewModel: ObservableObject {
         systemMemoryProvider: SystemMemoryProviding? = nil
     ) {
         self.engine = OrbisonicEngine(audioGraphEnabled: !Self.isRunningUnitTests)
-        self.localAudioLoader = { url, _ in
+        self.localAudioLoader = { url, _, _ in
             try localAudioLoader(url)
         }
         self.localMusicLibrary = localMusicLibrary
@@ -1441,6 +1457,32 @@ final class OrbisonicViewModel: ObservableObject {
         AppLogger.shared.info(category: "ui", "Selected file: \(url.path)")
 
         loadFile(url: url, autoplay: false)
+    }
+
+    /// Switches the active local file to a different audio stream (multi-stream
+    /// presentation selector) and re-issues the load so the chosen stream is decoded.
+    func selectLocalAudioPresentation(streamIndex: Int) {
+        guard sourceMode == .filePlayback, let url = currentFileURL else { return }
+        let descriptor = visibleLocalAssetDescriptor ?? pendingLocalAssetDescriptor
+        guard descriptor?.eligiblePresentations.contains(where: { $0.streamIndex == streamIndex }) == true,
+              streamIndex != selectedLocalAudioPresentationStreamIndex else { return }
+
+        selectedLocalAudioPresentationStreamIndexByPath[url.path] = streamIndex
+        // Both the descriptor cache and the prepared-PCM cache are keyed by URL only and
+        // are not stream-aware; clear them so the re-issued load re-probes and re-decodes.
+        clearLocalPreparedFilePreloads(reason: "audio presentation changed streamIndex=\(streamIndex)")
+
+        let wasPlaying = isPlaying
+        if let index = sessionQueueIndex, sessionQueue.indices.contains(index) {
+            _ = loadFile(
+                url: url,
+                autoplay: wasPlaying,
+                queueCommit: LocalFileQueueCommit(index: index, trackID: sessionQueue[index].id, isNaturalAdvance: false),
+                kind: .selectedTrack
+            )
+        } else {
+            _ = loadFile(url: url, autoplay: wasPlaying, kind: .selectedTrack)
+        }
     }
 
     private func diagnosticReportText() -> String {
@@ -3588,6 +3630,26 @@ final class OrbisonicViewModel: ObservableObject {
         return nil
     }
 
+    var eligibleLocalAudioPresentations: [LocalAudioPresentation] {
+        (visibleLocalAssetDescriptor ?? pendingLocalAssetDescriptor)?.eligiblePresentations ?? []
+    }
+
+    var hasMultipleLocalAudioPresentations: Bool {
+        (visibleLocalAssetDescriptor ?? pendingLocalAssetDescriptor)?.hasMultipleEligibleAudioPresentations ?? false
+    }
+
+    var selectedLocalAudioPresentationStreamIndex: Int {
+        let descriptor = visibleLocalAssetDescriptor ?? pendingLocalAssetDescriptor
+        if let path = currentFileURL?.path,
+           let stored = selectedLocalAudioPresentationStreamIndexByPath[path],
+           descriptor?.eligiblePresentations.contains(where: { $0.streamIndex == stored }) == true {
+            return stored
+        }
+        return descriptor?.selectedPresentation?.streamIndex
+            ?? descriptor?.eligiblePresentations.first?.streamIndex
+            ?? -1
+    }
+
     var pureSphericalLosslessBadgePresentation: PureSphericalLosslessBadgePresentation? {
         PureSphericalLosslessBadgePresenter.presentation(for: pureSphericalLosslessState)
     }
@@ -4066,6 +4128,7 @@ final class OrbisonicViewModel: ObservableObject {
 
         pendingLocalPresentationGeneration = request.generation
         pendingLocalAssetDescriptor = descriptor
+        visibleLocalAssetDescriptor = descriptor
         pendingLocalSourceMetadata = pendingMetadata(for: descriptor, request: request)
         loadedFileName = descriptor.url.lastPathComponent
         duration = descriptor.durationSeconds ?? 0
@@ -4824,7 +4887,8 @@ final class OrbisonicViewModel: ObservableObject {
                         )
                         let descriptor = try await AudioFileProbe().probe(
                             url: request.url,
-                            debugTiming: request.debugTiming
+                            debugTiming: request.debugTiming,
+                            selectedStreamIndex: self.selectedLocalAudioPresentationStreamIndexByPath[request.url.path]
                         )
                         localDescriptor = descriptor
                         self.logLocalTransportTiming(
@@ -4940,8 +5004,9 @@ final class OrbisonicViewModel: ObservableObject {
                     trackTitle: request.queueCommit.flatMap { self.queueTrack(for: $0.index)?.displayTitle },
                     fileURL: request.url
                 )
+                let selectedAudioStreamOrdinal = localDescriptor?.selectedPresentation?.audioStreamOrdinal
                 let decodeTask = Task.detached(priority: .utility) {
-                    try audioLoader(effectiveURL, request.debugTiming)
+                    try audioLoader(effectiveURL, selectedAudioStreamOrdinal, request.debugTiming)
                 }
                 self.localFileDecodeTask = decodeTask
                 self.localFileDecodeRequestID = request.id
@@ -5921,7 +5986,10 @@ final class OrbisonicViewModel: ObservableObject {
                     self.localPreparedFilePreloadDecodeSequence &+= 1
                     preloadDecodeID = self.localPreparedFilePreloadDecodeSequence
                     let decodeTask = Task.detached(priority: .utility) {
-                        try audioLoader(candidate.track.url, debugTiming)
+                        // Adjacent gapless preload always decodes the default stream
+                        // (matches the prior global behavior); the multi-stream selector
+                        // applies to the current track via the primary load path.
+                        try audioLoader(candidate.track.url, nil, debugTiming)
                     }
                     self.localPreparedFilePreloadDecodeTask = decodeTask
                     self.localPreparedFilePreloadDecodeID = preloadDecodeID
