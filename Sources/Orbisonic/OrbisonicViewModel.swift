@@ -5432,6 +5432,7 @@ final class OrbisonicViewModel: ObservableObject {
         try await engine.startStreaming(
             source: source,
             descriptor: descriptor,
+            rendererScene: committedRendererScene(for: descriptor.channelLayout),
             debugTiming: request.debugTiming
         )
 
@@ -10010,6 +10011,10 @@ final class OrbisonicViewModel: ObservableObject {
             name: loaded.metadata.layoutName.trimmedNilIfBlank ?? "\(loaded.layout.channelCount)-Channel Input",
             channels: loaded.layout.channels
         )
+        return committedRendererScene(for: layout)
+    }
+
+    private func committedRendererScene(for layout: SurroundLayout) -> RendererSceneModel {
         let mode = RendererModePolicy.effectiveRequestedMode(
             requestedMode: .automatic,
             inputChannelCount: layout.channelCount,

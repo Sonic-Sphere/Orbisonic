@@ -383,6 +383,7 @@ final class OrbisonicEngine {
     func startStreaming(
         source: StreamingAudioFileSource,
         descriptor: AudioAssetDescriptor,
+        rendererScene: RendererSceneModel? = nil,
         debugTiming: DebugTimingContext? = nil
     ) async throws {
         let commitStart = DispatchTime.now().uptimeNanoseconds
@@ -429,6 +430,11 @@ final class OrbisonicEngine {
         pausedPlaybackNeedsReschedule = false
         state = .ready
         completionToken = context.token
+
+        if let rendererScene {
+            self.rendererScene = rendererScene
+            self.rendererMode = rendererScene.renderMode
+        }
 
         if !audioGraphEnabled {
             source.start()
