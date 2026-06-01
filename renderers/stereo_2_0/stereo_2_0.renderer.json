@@ -1,0 +1,808 @@
+{
+  "schemaVersion": 1,
+  "layout": "stereo_2_0",
+  "displayName": "Stereo (parametric)",
+  "family": "stereo",
+  "description": "Parametric stereo \u2014 the special one. L and R are placed symmetrically at \u2213\u03b8/2 and \u00b1\u03b8/2, and the single control \u03b8 is the ANGLE BETWEEN THEM. Sweeping \u03b8 continuously reshapes the image: at 0\u00b0 the two channels collapse to front-center (mono); at 60\u00b0 you get a conventional loudspeaker pair; at 90\u00b0 a wide frontal stage; at 180\u00b0 L and R sit at the hard sides for a fully enveloping image. Each channel is then panned onto the dome by the same geometry engine, so as \u03b8 grows the two images glide smoothly apart from the center to the sides.",
+  "channelCount": 2,
+  "lfeChannelCount": 0,
+  "coordinateConvention": {
+    "x": "listener-right",
+    "y": "front",
+    "z": "up",
+    "azimuth": "degrees from front, positive to the right",
+    "radius": "unit (LFE excluded)"
+  },
+  "algorithm": {
+    "name": "cosine-power directional panning with capped power normalization",
+    "version": "1.0.0",
+    "summary": "Each non-LFE source channel is aimed in its real-world direction and spread across the nearest dome speakers by angular proximity, then loudness-normalized with a per-speaker cap so the image is even and enveloping. LFE goes to the sub.",
+    "formula": "w_i = max(0, d \u00b7 \u015d_i)^p over the 30 dome speakers; iteratively clip any w_i to a_max = sqrt(cap) and renormalize to unit L2 power (sum w_i^2 = 1); LFE channels map to the sub at unity.",
+    "parameters": {
+      "cosineSharpness": {
+        "value": 3.0,
+        "description": "Focus of each channel's spread. Higher = tighter (a channel drives fewer, closer dome speakers); lower = broader and more diffuse. At 3.0 each channel lights ~4-6 nearest speakers."
+      },
+      "perSpeakerPowerCap": {
+        "value": 0.22,
+        "unit": "fraction of a channel's power",
+        "description": "No single dome speaker may carry more than this share of a channel's power. It forces every channel to spread across several speakers, so images feel enveloping instead of pin-point, and no one speaker dominates."
+      },
+      "normalization": {
+        "value": "unitL2Power",
+        "description": "Each channel's gains are scaled so its total power sums to 1. Spreading a channel across many speakers is therefore neither louder nor quieter than putting it on one speaker \u2014 loudness stays constant as geometry changes."
+      },
+      "capIterations": {
+        "value": 6,
+        "description": "How many clip-then-renormalize passes enforce the per-speaker cap. 6 is plenty for the cap to settle."
+      },
+      "lfeRouting": {
+        "output": 31,
+        "outputIndex": 30,
+        "gain": 1.0,
+        "description": "LFE / direct-out channels skip the dome panning entirely and go straight to the sub (output 31) at unity gain."
+      }
+    }
+  },
+  "sphereTarget": {
+    "id": "fey-30.1",
+    "fullRangeOutputs": 30,
+    "lfeOutput": 31,
+    "speakersRef": "sphere-fey-30.1.json",
+    "speakersSha256": "0aec319a8dd0431e32191332ebd53f247a91b30a7ef54be7a3df4429893d9393"
+  },
+  "provenance": {
+    "geometrySource": {
+      "repo": "Sonic-Sphere/spat-speaker-layouts",
+      "path": "layout_geometry.csv",
+      "commit": "8d20f7f87dbb688cda5a88c1eccf292c5390d338"
+    },
+    "generator": "gen_renderers.py",
+    "algorithm": "cosine-power v1.0.0"
+  },
+  "channels": [
+    {
+      "index": 0,
+      "patch": 1,
+      "label": "L",
+      "role": "frontLeft",
+      "azimuthDeg": -45.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": -0.7071067812,
+        "y": 0.7071067812,
+        "z": 0.0
+      },
+      "lfe": false
+    },
+    {
+      "index": 1,
+      "patch": 2,
+      "label": "R",
+      "role": "frontRight",
+      "azimuthDeg": 45.0,
+      "elevationDeg": 0.0,
+      "position": {
+        "x": 0.7071067812,
+        "y": 0.7071067812,
+        "z": 0.0
+      },
+      "lfe": false
+    }
+  ],
+  "kernel": {
+    "outputCount": 31,
+    "lfeOutputIndex": 30,
+    "type": "inputMajorSparse",
+    "columns": [
+      {
+        "channelIndex": 0,
+        "label": "L",
+        "lfe": false,
+        "gains": [
+          [
+            6,
+            0.473745
+          ],
+          [
+            11,
+            0.473745
+          ],
+          [
+            17,
+            0.473745
+          ],
+          [
+            22,
+            0.33498
+          ],
+          [
+            12,
+            0.289369
+          ],
+          [
+            28,
+            0.280515
+          ],
+          [
+            23,
+            0.162261
+          ],
+          [
+            5,
+            0.121909
+          ],
+          [
+            16,
+            0.075182
+          ],
+          [
+            1,
+            0.05409
+          ],
+          [
+            10,
+            0.045239
+          ],
+          [
+            27,
+            0.015239
+          ],
+          [
+            18,
+            0.0035
+          ],
+          [
+            29,
+            0.001142
+          ],
+          [
+            7,
+            0.000177
+          ]
+        ]
+      },
+      {
+        "channelIndex": 1,
+        "label": "R",
+        "lfe": false,
+        "gains": [
+          [
+            7,
+            0.473532
+          ],
+          [
+            13,
+            0.473532
+          ],
+          [
+            18,
+            0.473532
+          ],
+          [
+            24,
+            0.339968
+          ],
+          [
+            12,
+            0.287501
+          ],
+          [
+            29,
+            0.278705
+          ],
+          [
+            23,
+            0.161214
+          ],
+          [
+            2,
+            0.121123
+          ],
+          [
+            19,
+            0.074696
+          ],
+          [
+            1,
+            0.053741
+          ],
+          [
+            8,
+            0.044947
+          ],
+          [
+            30,
+            0.01514
+          ],
+          [
+            17,
+            0.003477
+          ],
+          [
+            28,
+            0.001134
+          ],
+          [
+            6,
+            0.000175
+          ]
+        ]
+      }
+    ]
+  },
+  "checksums": {
+    "kernelSha256": "005e7758f2bdf99aa33681c72405693568f62683c00392b3b71b460b6ab0421f",
+    "geometrySha256": "baef414683b9bb623303e83ea1186df5f890d0e5600ba08340c369c3e8ee8d89"
+  },
+  "parametric": {
+    "parameter": "angleBetweenLRDegrees",
+    "description": "The angle between the Left and Right channels. L is placed at -angle/2 and R at +angle/2; the geometry engine then pans each onto the dome. Lower = narrower/more centered, higher = wider/more enveloping.",
+    "range": {
+      "min": 0,
+      "max": 180,
+      "unit": "degrees"
+    },
+    "default": 90.0,
+    "placement": "L.azimuth = -angle/2 ; R.azimuth = +angle/2 ; elevation = 0",
+    "presets": [
+      {
+        "angleDeg": 0,
+        "name": "Mono collapse",
+        "effect": "L and R coincide at front-center \u2014 a single mono image."
+      },
+      {
+        "angleDeg": 60,
+        "name": "Classic stereo",
+        "effect": "conventional loudspeaker pair at \u221330\u00b0 \u2014 natural frontal stage."
+      },
+      {
+        "angleDeg": 90,
+        "name": "Wide (Stereo 90)",
+        "effect": "broad frontal image at \u224345\u00b0 \u2014 the previous default."
+      },
+      {
+        "angleDeg": 180,
+        "name": "Enveloping (180)",
+        "effect": "L and R at the hard sides (\u224390\u00b0) \u2014 maximally wide / enveloping."
+      }
+    ],
+    "codegen": "function(angleDegrees) -> columns",
+    "kernelAtDefault": true,
+    "samples": [
+      {
+        "angleDeg": 0,
+        "columns": [
+          {
+            "channelIndex": 0,
+            "label": "L",
+            "lfe": false,
+            "gains": [
+              [
+                12,
+                0.469083
+              ],
+              [
+                23,
+                0.455539
+              ],
+              [
+                17,
+                0.447609
+              ],
+              [
+                18,
+                0.447609
+              ],
+              [
+                6,
+                0.223435
+              ],
+              [
+                7,
+                0.223435
+              ],
+              [
+                28,
+                0.153523
+              ],
+              [
+                29,
+                0.153523
+              ],
+              [
+                1,
+                0.151856
+              ],
+              [
+                11,
+                0.02522
+              ],
+              [
+                13,
+                0.02522
+              ],
+              [
+                24,
+                0.014176
+              ],
+              [
+                22,
+                0.012694
+              ],
+              [
+                2,
+                0.005348
+              ],
+              [
+                5,
+                0.005348
+              ]
+            ]
+          },
+          {
+            "channelIndex": 1,
+            "label": "R",
+            "lfe": false,
+            "gains": [
+              [
+                12,
+                0.469083
+              ],
+              [
+                23,
+                0.455539
+              ],
+              [
+                17,
+                0.447609
+              ],
+              [
+                18,
+                0.447609
+              ],
+              [
+                6,
+                0.223435
+              ],
+              [
+                7,
+                0.223435
+              ],
+              [
+                28,
+                0.153523
+              ],
+              [
+                29,
+                0.153523
+              ],
+              [
+                1,
+                0.151856
+              ],
+              [
+                11,
+                0.02522
+              ],
+              [
+                13,
+                0.02522
+              ],
+              [
+                24,
+                0.014176
+              ],
+              [
+                22,
+                0.012694
+              ],
+              [
+                2,
+                0.005348
+              ],
+              [
+                5,
+                0.005348
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "angleDeg": 60,
+        "columns": [
+          {
+            "channelIndex": 0,
+            "label": "L",
+            "lfe": false,
+            "gains": [
+              [
+                6,
+                0.471443
+              ],
+              [
+                12,
+                0.471443
+              ],
+              [
+                17,
+                0.471443
+              ],
+              [
+                11,
+                0.337305
+              ],
+              [
+                23,
+                0.293107
+              ],
+              [
+                28,
+                0.281866
+              ],
+              [
+                22,
+                0.188575
+              ],
+              [
+                1,
+                0.097708
+              ],
+              [
+                5,
+                0.070167
+              ],
+              [
+                18,
+                0.057455
+              ],
+              [
+                29,
+                0.019436
+              ],
+              [
+                7,
+                0.017751
+              ],
+              [
+                16,
+                0.006833
+              ],
+              [
+                10,
+                0.00427
+              ],
+              [
+                27,
+                0.00135
+              ]
+            ]
+          },
+          {
+            "channelIndex": 1,
+            "label": "R",
+            "lfe": false,
+            "gains": [
+              [
+                7,
+                0.471316
+              ],
+              [
+                12,
+                0.471316
+              ],
+              [
+                18,
+                0.471316
+              ],
+              [
+                13,
+                0.336201
+              ],
+              [
+                23,
+                0.292147
+              ],
+              [
+                29,
+                0.280943
+              ],
+              [
+                24,
+                0.194587
+              ],
+              [
+                1,
+                0.097388
+              ],
+              [
+                2,
+                0.069937
+              ],
+              [
+                17,
+                0.057266
+              ],
+              [
+                28,
+                0.019373
+              ],
+              [
+                6,
+                0.017693
+              ],
+              [
+                19,
+                0.006811
+              ],
+              [
+                8,
+                0.004256
+              ],
+              [
+                30,
+                0.001345
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "angleDeg": 90,
+        "columns": [
+          {
+            "channelIndex": 0,
+            "label": "L",
+            "lfe": false,
+            "gains": [
+              [
+                6,
+                0.473745
+              ],
+              [
+                11,
+                0.473745
+              ],
+              [
+                17,
+                0.473745
+              ],
+              [
+                22,
+                0.33498
+              ],
+              [
+                12,
+                0.289369
+              ],
+              [
+                28,
+                0.280515
+              ],
+              [
+                23,
+                0.162261
+              ],
+              [
+                5,
+                0.121909
+              ],
+              [
+                16,
+                0.075182
+              ],
+              [
+                1,
+                0.05409
+              ],
+              [
+                10,
+                0.045239
+              ],
+              [
+                27,
+                0.015239
+              ],
+              [
+                18,
+                0.0035
+              ],
+              [
+                29,
+                0.001142
+              ],
+              [
+                7,
+                0.000177
+              ]
+            ]
+          },
+          {
+            "channelIndex": 1,
+            "label": "R",
+            "lfe": false,
+            "gains": [
+              [
+                7,
+                0.473532
+              ],
+              [
+                13,
+                0.473532
+              ],
+              [
+                18,
+                0.473532
+              ],
+              [
+                24,
+                0.339968
+              ],
+              [
+                12,
+                0.287501
+              ],
+              [
+                29,
+                0.278705
+              ],
+              [
+                23,
+                0.161214
+              ],
+              [
+                2,
+                0.121123
+              ],
+              [
+                19,
+                0.074696
+              ],
+              [
+                1,
+                0.053741
+              ],
+              [
+                8,
+                0.044947
+              ],
+              [
+                30,
+                0.01514
+              ],
+              [
+                17,
+                0.003477
+              ],
+              [
+                28,
+                0.001134
+              ],
+              [
+                6,
+                0.000175
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "angleDeg": 180,
+        "columns": [
+          {
+            "channelIndex": 0,
+            "label": "L",
+            "lfe": false,
+            "gains": [
+              [
+                11,
+                0.470576
+              ],
+              [
+                16,
+                0.470576
+              ],
+              [
+                22,
+                0.44888
+              ],
+              [
+                10,
+                0.445667
+              ],
+              [
+                15,
+                0.185361
+              ],
+              [
+                17,
+                0.180299
+              ],
+              [
+                6,
+                0.158546
+              ],
+              [
+                5,
+                0.155822
+              ],
+              [
+                27,
+                0.155822
+              ],
+              [
+                21,
+                0.106037
+              ],
+              [
+                28,
+                0.063043
+              ],
+              [
+                4,
+                0.034963
+              ]
+            ]
+          },
+          {
+            "channelIndex": 1,
+            "label": "R",
+            "lfe": false,
+            "gains": [
+              [
+                13,
+                0.470588
+              ],
+              [
+                19,
+                0.470588
+              ],
+              [
+                8,
+                0.446811
+              ],
+              [
+                24,
+                0.446811
+              ],
+              [
+                14,
+                0.185837
+              ],
+              [
+                18,
+                0.180762
+              ],
+              [
+                7,
+                0.158953
+              ],
+              [
+                2,
+                0.156222
+              ],
+              [
+                30,
+                0.156222
+              ],
+              [
+                25,
+                0.10631
+              ],
+              [
+                29,
+                0.063204
+              ],
+              [
+                3,
+                0.035052
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "codegenHint": "parametricFunction"
+}

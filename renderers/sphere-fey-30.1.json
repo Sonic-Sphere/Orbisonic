@@ -1,0 +1,255 @@
+{
+  "id": "fey-30.1",
+  "fullRangeOutputs": 30,
+  "lfeOutput": 31,
+  "lfeOutputIndex": 30,
+  "coordinateConvention": {
+    "x": "listener-right",
+    "y": "front",
+    "z": "up",
+    "azimuth": "degrees from front, positive to the right",
+    "radius": "unit (LFE excluded)"
+  },
+  "speakers": [
+    {
+      "id": 1,
+      "x": 0.0,
+      "y": 0.6,
+      "z": -0.9,
+      "azimuthDeg": 0.0,
+      "elevationDeg": -56.3
+    },
+    {
+      "id": 2,
+      "x": 0.6,
+      "y": 0.2,
+      "z": -0.9,
+      "azimuthDeg": 71.6,
+      "elevationDeg": -54.9
+    },
+    {
+      "id": 3,
+      "x": 0.36,
+      "y": -0.49,
+      "z": -0.9,
+      "azimuthDeg": 143.7,
+      "elevationDeg": -56.0
+    },
+    {
+      "id": 4,
+      "x": -0.36,
+      "y": -0.49,
+      "z": -0.9,
+      "azimuthDeg": -143.7,
+      "elevationDeg": -56.0
+    },
+    {
+      "id": 5,
+      "x": -0.6,
+      "y": 0.2,
+      "z": -0.9,
+      "azimuthDeg": -71.6,
+      "elevationDeg": -54.9
+    },
+    {
+      "id": 6,
+      "x": -0.6,
+      "y": 0.69,
+      "z": -0.6,
+      "azimuthDeg": -41.0,
+      "elevationDeg": -33.3
+    },
+    {
+      "id": 7,
+      "x": 0.6,
+      "y": 0.69,
+      "z": -0.6,
+      "azimuthDeg": 41.0,
+      "elevationDeg": -33.3
+    },
+    {
+      "id": 8,
+      "x": 0.8,
+      "y": -0.26,
+      "z": -0.6,
+      "azimuthDeg": 108.0,
+      "elevationDeg": -35.5
+    },
+    {
+      "id": 9,
+      "x": 0.0,
+      "y": -0.8,
+      "z": -0.6,
+      "azimuthDeg": 180.0,
+      "elevationDeg": -36.9
+    },
+    {
+      "id": 10,
+      "x": -0.8,
+      "y": -0.26,
+      "z": -0.6,
+      "azimuthDeg": -108.0,
+      "elevationDeg": -35.5
+    },
+    {
+      "id": 11,
+      "x": -1.0,
+      "y": 0.33,
+      "z": -0.25,
+      "azimuthDeg": -71.7,
+      "elevationDeg": -13.4
+    },
+    {
+      "id": 12,
+      "x": 0.0,
+      "y": 1.0,
+      "z": -0.25,
+      "azimuthDeg": 0.0,
+      "elevationDeg": -14.0
+    },
+    {
+      "id": 13,
+      "x": 1.0,
+      "y": 0.33,
+      "z": -0.25,
+      "azimuthDeg": 71.7,
+      "elevationDeg": -13.4
+    },
+    {
+      "id": 14,
+      "x": 0.73,
+      "y": -1.0,
+      "z": -0.25,
+      "azimuthDeg": 143.9,
+      "elevationDeg": -11.4
+    },
+    {
+      "id": 15,
+      "x": -0.73,
+      "y": -1.0,
+      "z": -0.25,
+      "azimuthDeg": -143.9,
+      "elevationDeg": -11.4
+    },
+    {
+      "id": 16,
+      "x": -1.0,
+      "y": -0.33,
+      "z": 0.25,
+      "azimuthDeg": -108.3,
+      "elevationDeg": 13.4
+    },
+    {
+      "id": 17,
+      "x": -0.72,
+      "y": 1.0,
+      "z": 0.25,
+      "azimuthDeg": -35.8,
+      "elevationDeg": 11.5
+    },
+    {
+      "id": 18,
+      "x": 0.72,
+      "y": 1.0,
+      "z": 0.25,
+      "azimuthDeg": 35.8,
+      "elevationDeg": 11.5
+    },
+    {
+      "id": 19,
+      "x": 1.0,
+      "y": -0.33,
+      "z": 0.25,
+      "azimuthDeg": 108.3,
+      "elevationDeg": 13.4
+    },
+    {
+      "id": 20,
+      "x": 0.0,
+      "y": -1.0,
+      "z": 0.25,
+      "azimuthDeg": 180.0,
+      "elevationDeg": 14.0
+    },
+    {
+      "id": 21,
+      "x": -0.5,
+      "y": -0.69,
+      "z": 0.6,
+      "azimuthDeg": -144.1,
+      "elevationDeg": 35.2
+    },
+    {
+      "id": 22,
+      "x": -0.8,
+      "y": 0.25,
+      "z": 0.6,
+      "azimuthDeg": -72.6,
+      "elevationDeg": 35.6
+    },
+    {
+      "id": 23,
+      "x": 0.0,
+      "y": 0.8,
+      "z": 0.6,
+      "azimuthDeg": 0.0,
+      "elevationDeg": 36.9
+    },
+    {
+      "id": 24,
+      "x": 0.8,
+      "y": 0.26,
+      "z": 0.6,
+      "azimuthDeg": 72.0,
+      "elevationDeg": 35.5
+    },
+    {
+      "id": 25,
+      "x": 0.5,
+      "y": -0.69,
+      "z": 0.6,
+      "azimuthDeg": 144.1,
+      "elevationDeg": 35.2
+    },
+    {
+      "id": 26,
+      "x": 0.0,
+      "y": -0.6,
+      "z": 0.9,
+      "azimuthDeg": 180.0,
+      "elevationDeg": 56.3
+    },
+    {
+      "id": 27,
+      "x": -0.6,
+      "y": -0.2,
+      "z": 0.9,
+      "azimuthDeg": -108.4,
+      "elevationDeg": 54.9
+    },
+    {
+      "id": 28,
+      "x": -0.5,
+      "y": 0.69,
+      "z": 0.9,
+      "azimuthDeg": -35.9,
+      "elevationDeg": 46.6
+    },
+    {
+      "id": 29,
+      "x": 0.5,
+      "y": 0.69,
+      "z": 0.9,
+      "azimuthDeg": 35.9,
+      "elevationDeg": 46.6
+    },
+    {
+      "id": 30,
+      "x": 0.6,
+      "y": -0.2,
+      "z": 0.9,
+      "azimuthDeg": 108.4,
+      "elevationDeg": 54.9
+    }
+  ]
+}
