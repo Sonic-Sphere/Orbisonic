@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- Mono 1.0 -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Center-front mono reference. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- C: az=0, el=0 -->
+    <POSITION X="0.0000000000" Y="1.0000000000" Z="0.0000000000" />
+  </SPEAKER_1>
+</SPEAKER_SETUP>

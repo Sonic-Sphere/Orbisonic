@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- Auro-3D 8.0 -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Auro-3D 8.0 (4.0+4H): two quadraphonic layers, lower layer at 0 degrees and height layer at +30 degrees. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- L: az=-30, el=0 -->
+    <POSITION X="-0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_1>
+  <SPEAKER_2 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- R: az=30, el=0 -->
+    <POSITION X="0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_2>
+  <SPEAKER_3 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ls: az=-110, el=0 -->
+    <POSITION X="-0.9396926208" Y="-0.3420201433" Z="0.0000000000" />
+  </SPEAKER_3>
+  <SPEAKER_4 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rs: az=110, el=0 -->
+    <POSITION X="0.9396926208" Y="-0.3420201433" Z="0.0000000000" />
+  </SPEAKER_4>
+  <SPEAKER_5 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- HL: az=-30, el=30 -->
+    <POSITION X="-0.4330127019" Y="0.7500000000" Z="0.5000000000" />
+  </SPEAKER_5>
+  <SPEAKER_6 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- HR: az=30, el=30 -->
+    <POSITION X="0.4330127019" Y="0.7500000000" Z="0.5000000000" />
+  </SPEAKER_6>
+  <SPEAKER_7 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- HLs: az=-110, el=30 -->
+    <POSITION X="-0.8137976813" Y="-0.2961981327" Z="0.5000000000" />
+  </SPEAKER_7>
+  <SPEAKER_8 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- HRs: az=110, el=30 -->
+    <POSITION X="0.8137976813" Y="-0.2961981327" Z="0.5000000000" />
+  </SPEAKER_8>
+</SPEAKER_SETUP>

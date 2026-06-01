@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- Binaural 2.0 Narrow -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Utility narrow stereo reference from the local workplan; not a Dolby room-speaker standard. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- LeftEar: az=-15, el=0 -->
+    <POSITION X="-0.2588190451" Y="0.9659258263" Z="0.0000000000" />
+  </SPEAKER_1>
+  <SPEAKER_2 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- RightEar: az=15, el=0 -->
+    <POSITION X="0.2588190451" Y="0.9659258263" Z="0.0000000000" />
+  </SPEAKER_2>
+</SPEAKER_SETUP>

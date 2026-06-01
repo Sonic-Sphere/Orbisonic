@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- Quad 4.0 -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Symmetric quad reference layout. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- FL: az=-45, el=0 -->
+    <POSITION X="-0.7071067812" Y="0.7071067812" Z="0.0000000000" />
+  </SPEAKER_1>
+  <SPEAKER_2 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- FR: az=45, el=0 -->
+    <POSITION X="0.7071067812" Y="0.7071067812" Z="0.0000000000" />
+  </SPEAKER_2>
+  <SPEAKER_3 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- RL: az=-135, el=0 -->
+    <POSITION X="-0.7071067812" Y="-0.7071067812" Z="0.0000000000" />
+  </SPEAKER_3>
+  <SPEAKER_4 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- RR: az=135, el=0 -->
+    <POSITION X="0.7071067812" Y="-0.7071067812" Z="0.0000000000" />
+  </SPEAKER_4>
+</SPEAKER_SETUP>

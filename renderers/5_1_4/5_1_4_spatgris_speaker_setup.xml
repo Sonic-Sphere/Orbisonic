@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SPEAKER_SETUP VERSION="3.3.7" SPAT_MODE="Dome" DIFFUSION="0.0" GENERAL_MUTE="0">
+  <!-- 5.1.4 -->
+  <!-- Coordinates: +x right, +y front, +z up; negative azimuth is listener-left. -->
+  <!-- Basis: Dolby 5.1.4 overhead basis: 5.1 bed plus top-front and top-rear pairs. -->
+  <SPEAKER_1 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- L: az=-30, el=0 -->
+    <POSITION X="-0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_1>
+  <SPEAKER_2 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- R: az=30, el=0 -->
+    <POSITION X="0.5000000000" Y="0.8660254038" Z="0.0000000000" />
+  </SPEAKER_2>
+  <SPEAKER_3 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- C: az=0, el=0 -->
+    <POSITION X="0.0000000000" Y="1.0000000000" Z="0.0000000000" />
+  </SPEAKER_3>
+  <SPEAKER_4 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="1">
+    <!-- LFE: az=-45, el=0, direct out only -->
+    <POSITION X="-1.0000000000" Y="1.0000000000" Z="0.0000000000" />
+  </SPEAKER_4>
+  <SPEAKER_5 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ls: az=-110, el=0 -->
+    <POSITION X="-0.9396926208" Y="-0.3420201433" Z="0.0000000000" />
+  </SPEAKER_5>
+  <SPEAKER_6 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rs: az=110, el=0 -->
+    <POSITION X="0.9396926208" Y="-0.3420201433" Z="0.0000000000" />
+  </SPEAKER_6>
+  <SPEAKER_7 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ltf: az=-45, el=45 -->
+    <POSITION X="-0.5000000000" Y="0.5000000000" Z="0.7071067812" />
+  </SPEAKER_7>
+  <SPEAKER_8 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rtf: az=45, el=45 -->
+    <POSITION X="0.5000000000" Y="0.5000000000" Z="0.7071067812" />
+  </SPEAKER_8>
+  <SPEAKER_9 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Ltr: az=-135, el=45 -->
+    <POSITION X="-0.5000000000" Y="-0.5000000000" Z="0.7071067812" />
+  </SPEAKER_9>
+  <SPEAKER_10 STATE="normal" GAIN="0.0" DIRECT_OUT_ONLY="0">
+    <!-- Rtr: az=135, el=45 -->
+    <POSITION X="0.5000000000" Y="-0.5000000000" Z="0.7071067812" />
+  </SPEAKER_10>
+</SPEAKER_SETUP>
