@@ -4724,7 +4724,30 @@ final class OrbisonicViewModel: ObservableObject {
             dante: DanteOutputFormat(physicalChannelCount: 32, sampleRate: targetRate),
             desktop: DesktopOutputFormat(sampleRate: targetRate)
         )
-        let originalPath = originalURL.path
+
+        // AVFoundation cannot open Matroska containers, so ManagedAssetImporter
+        // (which reads via AVAudioFile) fails an off-rate MKV/MKA with
+        // kAudioFileUnsupportedFileTypeError. Demux the chosen stream to a
+        // temporary CAF first -- the same ffmpeg path used for on-rate Matroska
+        // playback -- then resample that CAF to the session rate. The demux runs
+        // off the main actor so the ffmpeg subprocess never blocks the UI.
+        var importSourceURL = originalURL
+        var temporaryDemuxURL: URL?
+        if MatroskaFLACSupport.isMatroska(originalURL) {
+            let demuxedURL = try await Task.detached(priority: .userInitiated) {
+                let streamInfo = try MatroskaAudioProbe().probe(url: originalURL)
+                return try MatroskaFLACDemuxer().demuxToCAF(url: originalURL, streamInfo: streamInfo)
+            }.value
+            importSourceURL = demuxedURL
+            temporaryDemuxURL = demuxedURL
+        }
+        defer {
+            if let temporaryDemuxURL {
+                try? FileManager.default.removeItem(at: temporaryDemuxURL)
+            }
+        }
+
+        let originalPath = importSourceURL.path
         let managedPath = managedURL.path
         let importTask = Task.detached(priority: .userInitiated) {
             try ManagedAssetImporter().importAsset(
