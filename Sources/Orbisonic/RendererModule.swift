@@ -129,6 +129,84 @@ enum RendererRenderMode: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Stable numeric catalog ID for this renderer. See docs/renderer/renderer-catalog.md.
+    /// IDs are permanent identifiers for diagnostics, presets, and telemetry: never renumber
+    /// an existing renderer, only append new IDs for new renderers.
+    var rendererId: Int {
+        switch self {
+        case .automatic:
+            0
+        case .mono:
+            1
+        case .stereo:
+            2
+        case .binaural:
+            3
+        case .quad:
+            4
+        case .surround51:
+            5
+        case .auro80:
+            6
+        case .auro91:
+            7
+        case .auro101:
+            8
+        case .auro111714h:
+            9
+        case .auro111515hT:
+            10
+        case .auro121:
+            11
+        case .auro131:
+            12
+        case .direct30:
+            13
+        case .direct31:
+            14
+        case .directPassthrough:
+            15
+        }
+    }
+
+    /// Descriptive catalog name, more specific than `displayName`. Used in docs and diagnostics.
+    var descriptiveName: String {
+        switch self {
+        case .automatic:
+            "Automatic Source-Matched Selector"
+        case .mono:
+            "Mono Omnifield Bed"
+        case .stereo:
+            "Stereo 90 Frontal Bed"
+        case .binaural:
+            "Binaural 180 Hemisphere Bed"
+        case .quad:
+            "Quadraphonic 4.0 Corner Bed"
+        case .surround51:
+            "Surround 5.1 Cinema Bed"
+        case .auro80:
+            "Auro 8.0 Height Bed"
+        case .auro91:
+            "Auro 9.1 Height Bed"
+        case .auro101:
+            "Auro 10.1 Top + Height Bed"
+        case .auro111714h:
+            "Auro 11.1 (7.1 + 4 Height) Bed"
+        case .auro111515hT:
+            "Auro 11.1 (5.1 + 5 Height + Top) Bed"
+        case .auro121:
+            "Auro 12.1 Height Bed"
+        case .auro131:
+            "Auro 13.1 Height + Top Bed"
+        case .direct30:
+            "Direct 30 Sphere Passthrough"
+        case .direct31:
+            "Direct 30.1 Sphere Passthrough"
+        case .directPassthrough:
+            "Direct N-Channel Passthrough"
+        }
+    }
+
     var statusName: String {
         switch self {
         case .surround51:
