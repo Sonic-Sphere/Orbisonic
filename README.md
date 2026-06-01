@@ -49,6 +49,22 @@ The default renderer preset is `Sonic Sphere 30.1 Default`: 30 full-range spatia
 
 Orbisonic also keeps a binaural headphone/monitor path available for setup, checking, and AirPods-oriented listening. The Sonic Sphere renderer is the primary system target; the headphone path is a monitoring and preview surface.
 
+### How stereo becomes 30.1
+
+The renderer does not simply send Left to one speaker and Right to another. Each input channel is spread across a whole region of the dome using a fixed gain matrix that is built once and then applied with a single multiply-add per sample — no delays, filters, or decorrelation (a *static bed*):
+
+![Stereo to 30.1 signal flow](docs/renderer/images/01_signal_flow.png)
+
+The 30 speakers are grouped into front-left, front-right, rear-left, and rear-right "walls," each power-normalized and tilted slightly upward. Stereo pans `Left = 0.88·FL + 0.12·RL` and `Right = 0.88·FR + 0.12·RR`, so **Left lights up the left side of the dome and Right the right**, with the dead-ahead speakers shared to form a natural phantom centre:
+
+![Stereo 90 dome map](docs/renderer/images/02_dome_map.png)
+
+A two-channel source can also render as **Binaural 180**, where each channel wraps the *entire* hemisphere on its side — front and rear equally — to preserve the front/back and height cues already baked into binaural / HRTF material:
+
+![Binaural 180 dome map](docs/renderer/images/05_binaural_dome.png)
+
+See [`docs/renderer/stereo-to-30-1-renderer.md`](docs/renderer/stereo-to-30-1-renderer.md) for the full breakdown, or [`Sources/Orbisonic/RendererModule.swift`](Sources/Orbisonic/RendererModule.swift) (`FeyStaticBedRenderer`) for the implementation.
+
 ## Requirements
 
 - macOS 14 or newer
