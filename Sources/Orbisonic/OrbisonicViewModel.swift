@@ -4879,7 +4879,11 @@ final class OrbisonicViewModel: ObservableObject {
                     }
                 }
 
-                if Self.enableStreamingLocalPlayback,
+                let mustStreamForFullSpatial = StreamingLocalPlaybackPolicy
+                    .requiresStreamingForFullSpatialRender(
+                        durationFrames: localDescriptor?.durationFrames
+                    )
+                if Self.enableStreamingLocalPlayback || mustStreamForFullSpatial,
                    request.autoplay,
                    effectiveURL == request.url,
                    self.queuedLocalFileLoadRequest == nil,
