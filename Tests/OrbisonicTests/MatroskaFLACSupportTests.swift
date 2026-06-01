@@ -69,7 +69,7 @@ final class MatroskaFLACSupportTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(error as? MatroskaAudioProbeError, .unsupportedAudioCodec("aac"))
-            XCTAssertTrue(error.localizedDescription.contains("FLAC or PCM"))
+            XCTAssertTrue(error.localizedDescription.contains("FLAC, PCM, or Dolby/DTS surround"))
         }
     }
 
@@ -311,5 +311,96 @@ final class MatroskaFLACSupportTests: XCTestCase {
         XCTAssertEqual(loaded.metadata.channelCount, 8)
         XCTAssertEqual(loaded.metadata.sampleRate, 96_000, accuracy: 0.5)
         XCTAssertEqual(loaded.monoBuffers.count, 8)
+    }
+
+    func testProbeParserAcceptsAC3SurroundBed() throws {
+        let json = """
+        {
+          "streams": [
+            {
+              "index": 0,
+              "codec_type": "audio",
+              "codec_name": "ac3",
+              "sample_rate": "48000",
+              "channels": 6,
+              "channel_layout": "5.1(side)"
+            }
+          ],
+          "format": { "duration": "252.9" }
+        }
+        """
+
+        let info = try MatroskaAudioProbe.parse(
+            ffprobeData: Data(json.utf8),
+            sourceURL: URL(fileURLWithPath: "/tmp/fight-test.mkv")
+        )
+
+        XCTAssertEqual(info.streamIndex, 0)
+        XCTAssertEqual(info.codecName, "Dolby Digital (AC-3)")
+        XCTAssertEqual(info.channelCount, 6)
+        XCTAssertEqual(info.sampleRate, 48_000)
+    }
+
+    func testProbeParserAcceptsTrueHDBedWhenNoLosslessAlternative() throws {
+        let json = """
+        {
+          "streams": [
+            {
+              "index": 0,
+              "codec_type": "audio",
+              "codec_name": "truehd",
+              "sample_rate": "48000",
+              "channels": 8,
+              "bits_per_raw_sample": "24",
+              "tags": { "title": "Dolby Atmos (48/24)" }
+            }
+          ]
+        }
+        """
+
+        let info = try MatroskaAudioProbe.parse(
+            ffprobeData: Data(json.utf8),
+            sourceURL: URL(fileURLWithPath: "/tmp/atmos-only.mkv")
+        )
+
+        XCTAssertEqual(info.streamIndex, 0)
+        XCTAssertEqual(info.codecName, "Dolby TrueHD")
+        XCTAssertEqual(info.channelCount, 8)
+    }
+
+    func testProbeParserPrefersLosslessPCMOverDolbyBed() throws {
+        let json = """
+        {
+          "streams": [
+            {
+              "index": 0,
+              "codec_type": "audio",
+              "codec_name": "eac3",
+              "sample_rate": "48000",
+              "channels": 6,
+              "tags": { "title": "Dolby Atmos" }
+            },
+            {
+              "index": 1,
+              "codec_type": "audio",
+              "codec_name": "pcm_s24le",
+              "sample_rate": "96000",
+              "channels": 8,
+              "bits_per_sample": 24,
+              "bits_per_raw_sample": "24",
+              "tags": { "title": "PCM 7.1" }
+            }
+          ]
+        }
+        """
+
+        let info = try MatroskaAudioProbe.parse(
+            ffprobeData: Data(json.utf8),
+            sourceURL: URL(fileURLWithPath: "/tmp/eac3-plus-pcm.mkv")
+        )
+
+        XCTAssertEqual(info.streamIndex, 1)
+        XCTAssertEqual(info.codecName, "PCM")
+        XCTAssertEqual(info.channelCount, 8)
     }
 }
