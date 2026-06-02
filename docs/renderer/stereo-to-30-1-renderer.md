@@ -1,3 +1,7 @@
+> **Note (updated):** Orbisonic is moving to a data-driven **geometry-engine** renderer with a **parametric Stereo** (the L↔R angle is adjustable from 0° to 180°) and the **full Dolby layout family** (5.1.2 / 5.1.4 / 7.1 / 7.1.2 / 7.1.4 / 9.1.4 / 9.1.6). For the current renderer set see [`renderer-catalog.md`](./renderer-catalog.md) and [`renderers/`](../../renderers/). This page describes the legacy lobe-based stereo bed.
+
+---
+
 # Stereo → 30.1: how the Sonic Sphere renderer works
 
 *Source: [`Sources/Orbisonic/RendererModule.swift`](../../Sources/Orbisonic/RendererModule.swift) — class `FeyStaticBedRenderer`, preset **“Sonic Sphere 30.1 Spatial.”***
