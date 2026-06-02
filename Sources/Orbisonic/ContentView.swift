@@ -2043,15 +2043,30 @@ struct ContentView: View {
         return "\(model.rendererText) • \(count) analysis channels"
     }
 
+    private var selectedSourceCardMinHeight: CGFloat {
+        model.hasMultipleLocalAudioPresentations ? 228 : 168
+    }
+
     private var rendererTab: some View {
         VStack(alignment: .leading, spacing: 18) {
-            settingsPanel(title: "Mode") {
-                rendererModeSelector
+            HStack(alignment: .top, spacing: 18) {
+                settingsPanel(title: "Mode", minHeight: selectedSourceCardMinHeight, fillsHeight: true) {
+                    rendererModeSelector
+                }
+
+                settingsPanel(title: "Input", minHeight: selectedSourceCardMinHeight, fillsHeight: true) {
+                    rendererInputSummaryPanel
+                }
             }
 
-            EqualHeightPanelRow(spacing: 18) {
-                monitorDownmixRenderPanel
-                sonicSphereRenderPanel
+            HStack(alignment: .top, spacing: 18) {
+                settingsPanel(title: "Output 1 Listen Locally", fillsHeight: true) {
+                    rendererListenLocallyOutputPanel
+                }
+
+                settingsPanel(title: "Output 2 Sonic Sphere", fillsHeight: true) {
+                    rendererSonicSphereOutputPanel
+                }
             }
 
             OrbisonicDisclosureTray(
@@ -2066,34 +2081,345 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private var monitorDownmixRenderPanel: some View {
-        let panel = model.monitorDownmixPanelModel
-        return settingsPanel(title: "Monitor Downmix", fillsHeight: true) {
-            infoRow(title: "Signal", value: panel.signalText)
-            infoRow(title: "Input", value: panel.inputText)
-            infoRow(title: "Mapping", value: panel.mappingText)
-            infoRow(title: "Render", value: panel.renderText)
-            infoRow(title: "Rules", value: panel.rulesText)
-            infoRow(title: "Output", value: panel.outputText)
-            if let warning = panel.warningText {
-                monitorDownmixWarningText(warning)
+    private var rendererInputSummaryPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(rendererInputDetailRows) { row in
+                rendererSummaryRow(title: row.title, value: row.value)
+            }
+
+            rendererInputStreamSelector
+        }
+    }
+
+    private var rendererListenLocallyOutputPanel: some View {
+        rendererOutputPanel(
+            rendererName: "Stereo downmix",
+            deviceText: monitorOutputDeviceText,
+            sampleRateOutText: rendererRouteSampleRateText(model.monitorOutputRoute),
+            channelsOutText: "Stereo"
+        )
+    }
+
+    private var rendererSonicSphereOutputPanel: some View {
+        rendererOutputPanel(
+            rendererName: activeRendererName,
+            rendererID: activeRendererID,
+            deviceText: sonicSphereOutputDeviceText,
+            sampleRateOutText: rendererRouteSampleRateText(model.rendererOutputRoute),
+            channelsOutText: rendererSonicSphereOutputChannelsText
+        )
+    }
+
+    // Exact name + stable identifier of the currently-active Sonic Sphere renderer.
+    private var activeRendererName: String {
+        model.rendererScene.renderMode.displayName
+    }
+
+    private var activeRendererID: String {
+        model.rendererScene.renderMode.rawValue
+    }
+
+    private func rendererOutputPanel(
+        rendererName: String,
+        rendererID: String? = nil,
+        deviceText: String,
+        sampleRateOutText: String,
+        channelsOutText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(rendererOutputDetailRows(
+                rendererName: rendererName,
+                rendererID: rendererID,
+                deviceText: deviceText,
+                sampleRateOutText: sampleRateOutText,
+                channelsOutText: channelsOutText
+            )) { row in
+                rendererSummaryRow(title: row.title, value: row.value)
             }
         }
     }
 
-    private var sonicSphereRenderPanel: some View {
-        settingsPanel(title: "Sonic Sphere Render", fillsHeight: true) {
-            infoRow(title: "Input", value: rendererInputChannelText)
-            infoRow(title: "Layout", value: rendererSourceLayoutText)
-            infoRow(title: "Matrix", value: model.rendererText)
-            infoRow(title: "Output", value: model.rendererSelectionText)
-            infoRow(title: "Inspect", value: model.rendererMatrixInspectionText)
+    private func rendererOutputDetailRows(
+        rendererName: String,
+        rendererID: String?,
+        deviceText: String,
+        sampleRateOutText: String,
+        channelsOutText: String
+    ) -> [PlayerDetailRow] {
+        var rows = [PlayerDetailRow(title: "Renderer", value: rendererName)]
+        if let rendererID = rendererID?.trimmedNilIfBlank {
+            rows.append(PlayerDetailRow(title: "Renderer ID", value: rendererID))
         }
+        rows.append(contentsOf: [
+            PlayerDetailRow(title: "Device", value: deviceText),
+            PlayerDetailRow(title: "Sample rate in", value: currentTrackSampleRateText),
+            PlayerDetailRow(title: "Sample rate out", value: sampleRateOutText),
+            PlayerDetailRow(title: "Channels in", value: currentTrackChannelCountText),
+            PlayerDetailRow(title: "Channels out", value: channelsOutText)
+        ])
+        return rows
+    }
+
+    private func rendererSummaryRow(title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(LabTheme.textSoft)
+                .frame(width: 108, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(LabTheme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var rendererInputDetailRows: [PlayerDetailRow] {
+        [
+            PlayerDetailRow(title: "Container", value: currentTrackContainerText),
+            PlayerDetailRow(title: "Codec", value: currentTrackCodecText),
+            PlayerDetailRow(title: "Sample rate", value: currentTrackSampleRateText),
+            PlayerDetailRow(title: "Channels", value: currentTrackChannelCountText),
+            PlayerDetailRow(title: "Dolby", value: currentTrackDolbyText),
+            PlayerDetailRow(title: "Auro", value: currentTrackAuroText)
+        ].filter { $0.value.trimmedNilIfBlank != nil }
+    }
+
+    private var currentTrackContainerText: String {
+        if model.sourceMode == .atmosDRP {
+            if let extensionText = (model.currentAtmosDRPTrack ?? model.visibleLocalPlaybackTrack)?.url.pathExtension.trimmedNilIfBlank {
+                return RendererSourceFactsModel.rendererContainerText(extensionText)
+            }
+            if let metadata = model.visibleLocalSourceMetadata {
+                return RendererSourceFactsModel.rendererContainerText(metadata.containerName)
+            }
+        }
+        if let metadata = model.visibleLocalSourceMetadata {
+            return RendererSourceFactsModel.rendererContainerText(metadata.containerName)
+        }
+        return "Unknown"
+    }
+
+    private var currentTrackCodecText: String {
+        if model.sourceMode == .atmosDRP,
+           let codec = model.dolbyReferencePlayerSnapshot.bitstreamInfo?.codec?.trimmedNilIfBlank {
+            return RendererSourceFactsModel.rendererCodecText(codec)
+        }
+        if let metadata = model.visibleLocalSourceMetadata {
+            return RendererSourceFactsModel.rendererCodecText(metadata.codecName.trimmedNilIfBlank ?? metadata.containerName)
+        }
+        if model.sourceMode == .roon, let format = model.roonNowPlaying?.tidyFormatText.trimmedNilIfBlank {
+            return RendererSourceFactsModel.rendererCodecText(format)
+        }
+        if model.sourceMode == .spotify, model.spotifyNowPlayingForActiveStatus != nil {
+            return "Unknown"
+        }
+        return "Unknown"
+    }
+
+    private var currentTrackSampleRateText: String {
+        RendererSourceFactsModel.rendererSampleRateText(currentTrackSampleRateValue)
+    }
+
+    private var currentTrackSampleRateValue: Double? {
+        if model.sourceMode == .atmosDRP,
+           let sampleRate = model.dolbyReferencePlayerSnapshot.bitstreamInfo?.sampleRateHz {
+            return Double(sampleRate)
+        }
+        if let metadata = model.visibleLocalSourceMetadata, metadata.sampleRate > 0 {
+            return metadata.sampleRate
+        }
+        if model.sourceMode == .roon, let sampleRate = model.roonNowPlaying?.outputSampleRate {
+            return sampleRate
+        }
+        return nil
+    }
+
+    private var currentTrackChannelCountText: String {
+        if model.sourceMode == .atmosDRP,
+           let bitstream = model.dolbyReferencePlayerSnapshot.bitstreamInfo {
+            let layout = bitstream.bedObjectConfiguration ?? bitstream.codedChannels
+            return RendererSourceFactsModel.rendererChannelLayoutText(layout: layout, channels: nil)
+        }
+        if let metadata = model.visibleLocalSourceMetadata {
+            return RendererSourceFactsModel.rendererChannelLayoutText(
+                layout: metadata.layoutName,
+                channels: metadata.channelCount > 0 ? metadata.channelCount : nil
+            )
+        }
+        if model.sourceMode == .roon, let count = model.roonSignalPath?.sourceChannelCount, count > 0 {
+            return RendererSourceFactsModel.rendererChannelLayoutText(layout: nil, channels: count)
+        }
+        if model.sourceMode == .spotify, model.spotifyNowPlayingForActiveStatus != nil {
+            return "Stereo"
+        }
+        return "Unknown"
+    }
+
+    private var currentTrackDolbyText: String {
+        if model.sourceMode == .atmosDRP,
+           let bitstream = model.dolbyReferencePlayerSnapshot.bitstreamInfo {
+            if bitstream.hasAtmos == true {
+                if let dolbyCodec = rendererDolbyCodecText(bitstream.codec) {
+                    return "Dolby Atmos · \(dolbyCodec)"
+                }
+                return "Dolby Atmos"
+            }
+            if let dolbyCodec = rendererDolbyCodecText(bitstream.codec) {
+                return dolbyCodec
+            }
+        }
+        guard let metadata = model.visibleLocalSourceMetadata else { return "No" }
+        let fields: [String?] = [
+            metadata.containerName,
+            metadata.codecName,
+            metadata.layoutName,
+            metadata.formatNote,
+            metadata.channelLayoutSourceDescription
+        ]
+        let combined = fields.compactMap { $0?.trimmedNilIfBlank }.joined(separator: " ")
+        if combined.localizedCaseInsensitiveContains("Atmos") {
+            if let dolbyCodec = rendererDolbyCodecText(metadata.codecName) {
+                return "Dolby Atmos · \(dolbyCodec)"
+            }
+            return "Dolby Atmos"
+        }
+        if combined.localizedCaseInsensitiveContains("JOC") {
+            return "E-AC-3 JOC"
+        }
+        if let dolbyCodec = rendererDolbyCodecText(metadata.codecName) {
+            return dolbyCodec
+        }
+        if combined.localizedCaseInsensitiveContains("Dolby") {
+            return "Dolby"
+        }
+        return "No"
+    }
+
+    private var currentTrackAuroText: String {
+        guard let metadata = model.visibleLocalSourceMetadata else { return "No" }
+        let fields: [String?] = [
+            metadata.layoutName,
+            metadata.codecName,
+            metadata.formatNote,
+            metadata.channelLayoutSourceDescription
+        ]
+        let combined = fields.compactMap { $0?.trimmedNilIfBlank }.joined(separator: " ")
+        guard combined.localizedCaseInsensitiveContains("Auro") else { return "No" }
+        return "Yes"
+    }
+
+    private var monitorOutputDeviceText: String {
+        guard model.monitorOutputRoute.isAvailable else { return "not set" }
+        return model.monitorOutputRoute.deviceName
+    }
+
+    private var sonicSphereOutputDeviceText: String {
+        guard model.rendererOutputRoute.isAvailable else { return "not set" }
+        return model.rendererOutputRoute.deviceName
+    }
+
+    private var rendererSonicSphereOutputChannelsText: String {
+        let count = model.rendererScene.outputSpeakers.count
+        switch count {
+        case 31:
+            return "30.1"
+        case 30:
+            return "30"
+        default:
+            return RendererSourceFactsModel.rendererChannelLayoutText(
+                layout: nil,
+                channels: count > 0 ? count : nil
+            )
+        }
+    }
+
+    private func rendererRouteSampleRateText(_ route: OutputRouteInfo) -> String {
+        RendererSourceFactsModel.rendererOutputSampleRateText(for: route)
+    }
+
+    private func rendererReadableCodecText(_ value: String) -> String {
+        switch value.lowercased() {
+        case "eac3", "e-ac-3", "e-ac-3 joc", "dolby digital plus", "dolby digital plus joc":
+            return value.localizedCaseInsensitiveContains("joc") ? "E-AC-3 JOC" : "E-AC-3"
+        case "ac3", "ac-3", "dolby digital":
+            return "AC-3"
+        case "joc":
+            return "E-AC-3 JOC"
+        case "truehd", "truehd atmos", "dolby truehd", "dolby truehd atmos":
+            return value.localizedCaseInsensitiveContains("atmos") ? "TrueHD Atmos" : "TrueHD"
+        case "mlp fba":
+            return "TrueHD"
+        case "flac":
+            return "FLAC"
+        case "aac":
+            return "AAC"
+        case "pcm", "lpcm", "coreaudio float32", "float32":
+            return "PCM"
+        default:
+            return value
+        }
+    }
+
+    private func rendererDolbyCodecText(_ value: String?) -> String? {
+        guard let value = value?.trimmedNilIfBlank else { return nil }
+        let lowercased = value.lowercased()
+        if lowercased.contains("joc") {
+            return "E-AC-3 JOC"
+        }
+        if lowercased.contains("truehd") || lowercased.contains("true hd") || lowercased.contains("mlp") {
+            return "TrueHD"
+        }
+        if lowercased.contains("eac3") || lowercased.contains("e-ac-3") || lowercased.contains("digital plus") {
+            return "E-AC-3"
+        }
+        if lowercased.contains("ac3") || lowercased.contains("ac-3") || lowercased.contains("dolby digital") {
+            return "AC-3"
+        }
+        guard lowercased.contains("dolby") else { return nil }
+        return rendererReadableCodecText(value)
+    }
+
+    @ViewBuilder
+    private var rendererInputStreamSelector: some View {
+        if model.sourceMode == .filePlayback,
+           model.hasMultipleLocalAudioPresentations {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Stream")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LabTheme.textSoft)
+                    .frame(width: 108, alignment: .leading)
+
+                Picker("Stream", selection: localAudioPresentationSelection) {
+                    ForEach(model.eligibleLocalAudioPresentations) { presentation in
+                        Text(localAudioPresentationPickerTitle(presentation))
+                            .tag(presentation.streamIndex)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(model.isLocalFileLoading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func localAudioPresentationPickerTitle(_ presentation: LocalAudioPresentation) -> String {
+        "S\(presentation.audioStreamOrdinal + 1) · \(presentation.codecName) · \(presentation.layoutText)"
+    }
+
+    private var localAudioPresentationSelection: Binding<Int> {
+        Binding(
+            get: { model.selectedLocalAudioPresentationStreamIndex },
+            set: { model.selectLocalAudioPresentation(streamIndex: $0) }
+        )
     }
 
     private var rendererModeSelector: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("Always Mono", isOn: $model.rendererAlwaysMono)
+            Toggle("Mono", isOn: $model.rendererAlwaysMono)
                 .toggleStyle(.switch)
                 .tint(LabTheme.cyan)
 

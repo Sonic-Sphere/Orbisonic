@@ -80,7 +80,7 @@ enum FFmpegAudioDecoderError: LocalizedError, Equatable {
 }
 
 struct FFmpegAudioDecoder {
-    func decodeToCAF(url: URL, sourceDescription: String) throws -> URL {
+    func decodeToCAF(url: URL, sourceDescription: String, audioStreamOrdinal: Int = 0) throws -> URL {
         guard let ffmpegURL = FFmpegToolLocator.ffmpegURL() else {
             throw FFmpegAudioDecoderError.missingFFmpeg(sourceDescription)
         }
@@ -93,13 +93,15 @@ struct FFmpegAudioDecoder {
             .appendingPathComponent(UUID().uuidString, isDirectory: false)
             .appendingPathExtension("caf")
 
+        // audioStreamOrdinal selects which audio stream to decode (0:a:N). Used by
+        // the multi-stream presentation selector to decode a non-default stream.
         let result = try MatroskaAudioProbe.runProcess(
             executableURL: ffmpegURL,
             arguments: [
                 "-v", "error",
                 "-y",
                 "-i", url.path,
-                "-map", "0:a:0",
+                "-map", "0:a:\(max(0, audioStreamOrdinal))",
                 "-vn",
                 "-c:a", "pcm_f32le",
                 "-f", "caf",
