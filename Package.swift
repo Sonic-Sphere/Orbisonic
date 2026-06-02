@@ -26,6 +26,14 @@ let package = Package(
         .library(
             name: "OrbisonicVLCReference",
             targets: ["OrbisonicVLCReference"]
+        ),
+        .library(
+            name: "RendererGeometry",
+            targets: ["RendererGeometry"]
+        ),
+        .library(
+            name: "RendererResolver",
+            targets: ["RendererResolver"]
         )
     ],
     targets: [
@@ -44,9 +52,16 @@ let package = Package(
             name: "OrbisonicVLCReference",
             dependencies: ["AudioContracts"]
         ),
+        .target(
+            name: "RendererGeometry"
+        ),
+        .target(
+            name: "RendererResolver",
+            dependencies: ["RendererGeometry"]
+        ),
         .executableTarget(
             name: "Orbisonic",
-            dependencies: ["AudioContracts", "AudioImport", "AudioCore"],
+            dependencies: ["AudioContracts", "AudioImport", "AudioCore", "RendererGeometry", "RendererResolver"],
             exclude: [
                 "Resources/AppLogos/README.md",
                 "Resources/Tools/ffmpeg",
@@ -90,6 +105,14 @@ let package = Package(
         .testTarget(
             name: "OrbisonicVLCReferenceTests",
             dependencies: ["OrbisonicVLCReference", "AudioContracts"]
+        ),
+        .testTarget(
+            name: "RendererGeometryTests",
+            dependencies: ["RendererGeometry"]
+        ),
+        .testTarget(
+            name: "RendererResolverTests",
+            dependencies: ["RendererResolver"]
         )
     ]
 )
