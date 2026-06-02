@@ -945,6 +945,90 @@
       }
     ]
   },
+  "hasSubFeed": true,
+  "bassManagement": {
+    "enabled": true,
+    "context": "music / club (disco)",
+    "monoBass": true,
+    "subFeedLowPass": {
+      "freqHz": 400,
+      "slopeDbPerOct": 12
+    },
+    "mainsHighPass": "none (run the dome full-range; the club sub rig adds the bottom)",
+    "clubSubCrossover": "handled downstream by the club's own sub processor/crossover",
+    "lfeGainDb": 0.0,
+    "subOutput": 31,
+    "subOutputIndex": 30,
+    "derivedLFE": false,
+    "subFeed": {
+      "description": "Sub (output 31) = MONO bass sum of all full-range source channels, generously low-passed at ~400 Hz plus the discrete LFE channel(s) at unity. Mono bass for the dancefloor; the club's own sub crossover sets the final low-pass.",
+      "fullRangeBassDownmix": [
+        {
+          "channelIndex": 0,
+          "label": "L",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 1,
+          "label": "R",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 2,
+          "label": "C",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 4,
+          "label": "Ls",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 5,
+          "label": "Rs",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 6,
+          "label": "Lb",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 7,
+          "label": "Rb",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 8,
+          "label": "HL",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 9,
+          "label": "HR",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 10,
+          "label": "HLs",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 11,
+          "label": "HRs",
+          "gain": 1.0
+        }
+      ],
+      "lfe": [
+        {
+          "channelIndex": 3,
+          "label": "LFE",
+          "gainDb": 0.0,
+          "gainLinear": 1.0
+        }
+      ]
+    }
+  },
   "checksums": {
     "kernelSha256": "9a8a7aa0fbf51b5410af46e310f21c9f7cbc21af687866e3351ad1ed9fcc4c17",
     "geometrySha256": "11b08b146604b1c99a7312ba16e5a79a0fa7c4d30db21c0e6b7f6a47a1f880af"

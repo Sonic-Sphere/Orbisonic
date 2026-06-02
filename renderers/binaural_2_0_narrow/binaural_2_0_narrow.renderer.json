@@ -215,6 +215,38 @@
       }
     ]
   },
+  "hasSubFeed": true,
+  "bassManagement": {
+    "enabled": true,
+    "context": "music / club (disco)",
+    "monoBass": true,
+    "subFeedLowPass": {
+      "freqHz": 400,
+      "slopeDbPerOct": 12
+    },
+    "mainsHighPass": "none (run the dome full-range; the club sub rig adds the bottom)",
+    "clubSubCrossover": "handled downstream by the club's own sub processor/crossover",
+    "lfeGainDb": 0.0,
+    "subOutput": 31,
+    "subOutputIndex": 30,
+    "derivedLFE": true,
+    "subFeed": {
+      "description": "Sub (output 31) = MONO bass sum of all full-range source channels, generously low-passed at ~400 Hz; this layout has NO discrete LFE, so the sub is a derived mono bass downmix. Mono bass for the dancefloor; the club's own sub crossover sets the final low-pass.",
+      "fullRangeBassDownmix": [
+        {
+          "channelIndex": 0,
+          "label": "LeftEar",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 1,
+          "label": "RightEar",
+          "gain": 1.0
+        }
+      ],
+      "lfe": []
+    }
+  },
   "checksums": {
     "kernelSha256": "732676fbcc93ae1fc4b29175fc84cddf56f3c9d13d08bfb8883e548a5c7e0cc0",
     "geometrySha256": "d42a1abd3dc6ebc329ec8ff507ebbcf41d56ca0eec0ae3795566b1c1fba8d9e8"

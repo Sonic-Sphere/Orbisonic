@@ -142,6 +142,33 @@ def stereo_channels(angle):
 def top_cells(col):
     return ", ".join(f"#{g[0]}@{SPH_AZ[sph_ids.index(g[0])]:+.0f}°:{g[1]:.2f}" for g in col['gains'][:5])
 
+# ---- bass management (THX 80 Hz): every renderer feeds the sub ----
+LFE_GAIN_DB=0.0
+def db2lin(db): return 10**(db/20.0)
+BASS_PARAMS={
+ "subFeedLowPassHz":{"value":400,"description":"Feed the subs everything below ~400 Hz (a generous, gentle band-limit). This is NOT the final crossover — the club's own sub processor/crossover sets the real cutoff, so the renderer stays un-aggressive and just hands the subs a fat low-frequency bus."},
+ "subFeedSlopeDbPerOct":{"value":12,"description":"Gentle 12 dB/oct low-pass on the sub feed; the club's sub rig provides the steep final roll-off."},
+ "monoBass":{"value":True,"description":"Bass is summed to MONO before the subs. Mono sub bass is standard for clubs/discos — it keeps the dancefloor low end tight, powerful and phase-coherent across a big multi-sub rig (stereo bass smears and partially cancels on a large system)."},
+ "mainsHighPass":{"value":"none","description":"The renderer does NOT high-pass the 30 dome speakers — run them full-range; the subs add the bottom. Integration is left to the club's sub crossover / system processor."},
+ "lfeGainDb":{"value":LFE_GAIN_DB,"description":"Discrete LFE channels (in multichannel music) are summed into the mono sub at UNITY. The cinema +10 dB LFE bump is intentionally NOT applied — this is music; the DJ/system sets sub level."},
+}
+def build_bass(channels):
+    fr=[c for c in channels if not c['lfe']]; lfe=[c for c in channels if c['lfe']]
+    return {
+      "enabled":True,"context":"music / club (disco)","monoBass":True,
+      "subFeedLowPass":{"freqHz":400,"slopeDbPerOct":12},
+      "mainsHighPass":"none (run the dome full-range; the club sub rig adds the bottom)",
+      "clubSubCrossover":"handled downstream by the club's own sub processor/crossover",
+      "lfeGainDb":LFE_GAIN_DB,"subOutput":31,"subOutputIndex":30,
+      "derivedLFE":len(lfe)==0,
+      "subFeed":{
+        "description":("Sub (output 31) = MONO bass sum of all full-range source channels, generously low-passed at ~400 Hz"
+          + (" plus the discrete LFE channel(s) at unity." if lfe else "; this layout has NO discrete LFE, so the sub is a derived mono bass downmix.")
+          + " Mono bass for the dancefloor; the club's own sub crossover sets the final low-pass."),
+        "fullRangeBassDownmix":[{"channelIndex":c['index'],"label":c['label'],"gain":1.0} for c in fr],
+        "lfe":[{"channelIndex":c['index'],"label":c['label'],"gainDb":LFE_GAIN_DB,"gainLinear":round(db2lin(LFE_GAIN_DB),4)} for c in lfe],
+      }}
+
 index=[]
 for name,chs in layouts.items():
     disp,fam=META.get(name,(name,"other")); d=f"{OUT}/{name}"; os.makedirs(d,exist_ok=True)
@@ -149,6 +176,7 @@ for name,chs in layouts.items():
     channels = stereo_channels(STEREO_DEFAULT) if is_stereo else csv_channels(chs)
     lfe=sum(1 for ch in channels if ch['lfe'])
     cols=columns(channels)
+    bass=build_bass(channels)
     kernel={"outputCount":31,"lfeOutputIndex":30,"type":"inputMajorSparse","columns":cols}
     spec={"schemaVersion":1,"layout":name,"displayName":disp,"family":fam,
       "description":(STEREO_DESC if is_stereo else DESC.get(name,"")),
@@ -156,7 +184,7 @@ for name,chs in layouts.items():
       "sphereTarget":{"id":"fey-30.1","fullRangeOutputs":30,"lfeOutput":31,"speakersRef":"sphere-fey-30.1.json","speakersSha256":SPH_SHA},
       "provenance":{"geometrySource":{"repo":"Sonic-Sphere/spat-speaker-layouts","path":"layout_geometry.csv","commit":GEOM_COMMIT},
         "generator":"gen_renderers.py","algorithm":f"cosine-power v{ALGO_VERSION}"},
-      "channels":channels,"kernel":kernel,
+      "channels":channels,"kernel":kernel,"hasSubFeed":True,"bassManagement":bass,
       "checksums":{"kernelSha256":sha(kernel),"geometrySha256":sha(channels)}}
     if name in DESIGN_NOTE: spec["designNotes"]=DESIGN_NOTE[name]
     if is_stereo:
@@ -178,7 +206,7 @@ for name,chs in layouts.items():
 
     # ---- human-readable MD ----
     L=[f"# {disp} — Sonic Sphere renderer spec\n"]
-    L.append(f"- **Layout id:** `{name}`  ·  **Family:** {fam}  ·  **Channels:** {len(channels)} ({lfe} LFE)")
+    L.append(f"- **Layout id:** `{name}`  ·  **Family:** {fam}  ·  **Channels:** {len(channels)}  ·  **Sub:** {'discrete LFE + mono bass downmix' if lfe else 'derived mono bass downmix'}")
     L.append(f"- **Target:** Fey 30.1 dome (30 full-range + sub)  ·  **Algorithm:** cosine-power directional panning v{ALGO_VERSION}")
     L.append(f"- **Provenance:** `Sonic-Sphere/spat-speaker-layouts/layout_geometry.csv` @ `{GEOM_COMMIT[:10]}`\n")
     L.append("## What this renderer does\n")
@@ -206,7 +234,7 @@ for name,chs in layouts.items():
     L.append("```")
     L.append(f"w_i = max(0, d · ŝ_i) ^ p          p (cosineSharpness) = {SHARP}")
     L.append(f"clip w_i ≤ √cap, renormalize Σw_i²=1   cap = {CAP} (≤ {math.sqrt(CAP):.3f} amplitude), {CAP_ITERS} iters")
-    L.append("LFE channels → sub (output 31) at unity")
+    L.append("dome speakers run full-range; sub gets a gentle ≤400 Hz mono feed (see below)")
     L.append("```\n")
     L.append("**What the adjustable parameters do:**\n")
     for k,v in PARAMS.items():
@@ -219,6 +247,22 @@ for name,chs in layouts.items():
     for col,ch in zip(cols,channels):
         if col.get('lfe'): L.append(f"| `{ch['label']}` | {ch['role']} | **→ SUB (output 31)** |"); continue
         L.append(f"| `{ch['label']}` | {ch['role']} | {top_cells(col)} |")
+    L.append("## Sub feed (mono bass for the dancefloor)\n")
+    _fr=", ".join(f"`{c['label']}`" for c in channels if not c['lfe'])
+    if bass["derivedLFE"]:
+        L.append("This layout has **no discrete LFE** — its sub is a **derived mono bass downmix** (a mono sum of its channels).\n")
+    else:
+        _lf=", ".join(f"`{c['label']}`" for c in channels if c['lfe'])
+        L.append(f"This layout has a discrete **{_lf}** channel feeding the sub, **plus** the mono bass sum of the mains.\n")
+    L.append("This is a **music / club (disco)** system, not cinema. Every renderer feeds the sub(s) (output 31) a **mono bass sum** — mono keeps the dancefloor low end tight, loud and phase-coherent across a big multi-sub rig:\n")
+    L.append(f"- the sub gets a **generous ≤400 Hz** (gentle 12 dB/oct) **mono sum** of all full-range channels — {_fr};")
+    if not bass["derivedLFE"]:
+        L.append("- the discrete LFE is summed in at **unity** (no cinema +10 dB bump);")
+    L.append("- the 30 dome speakers **run full-range** — the **club's own sub crossover** sets the final low-pass, so the renderer stays gentle.")
+    L.append("\n**Sub-feed parameters:**\n")
+    for k,v in BASS_PARAMS.items():
+        L.append(f"- **`{k}`** = `{v['value']}` — {v['description']}")
+    L.append("")
     L.append(f"\n## Reproducibility\n")
     L.append(f"- Kernel is fully regenerable from *source geometry + algorithm parameters* above" + (" (computed live from the angle for stereo)." if is_stereo else "."))
     L.append(f"- Machine-readable spec: [`{name}.renderer.json`](./{name}.renderer.json)")
@@ -227,14 +271,22 @@ for name,chs in layouts.items():
     index.append((name,disp,fam,len(channels),lfe,is_stereo))
 
 with open(f"{OUT}/README.md","w") as f:
-    f.write("# Sonic Sphere Renderer Specs\n\nEach renderer is a reproducible bundle: source geometry + design math + helpful explanations + the resulting kernel, in machine-readable JSON and human-readable Markdown. See [`DESIGN.md`](./DESIGN.md) and the dome target [`sphere-fey-30.1.json`](./sphere-fey-30.1.json).\n\n")
+    f.write("# Sonic Sphere Renderer Specs\n\nEach renderer is a reproducible bundle: source geometry + design math + helpful explanations + the resulting kernel, in machine-readable JSON and human-readable Markdown. See [`DESIGN.md`](./DESIGN.md) and the dome target [`sphere-fey-30.1.json`](./sphere-fey-30.1.json). Every renderer also feeds the sub(s) a mono bass sum for the dancefloor (music/club — see DESIGN.md).\n\n")
     f.write("| Layout | Name | Family | ch | LFE | Notes | Spec |\n|---|---|---|--:|--:|---|---|\n")
     for name,disp,fam,n,lfe,st in index:
         note="⭐ parametric L↔R angle 0–180°" if st else ""
-        f.write(f"| `{name}` | {disp} | {fam} | {n} | {lfe} | {note} | [json](./{name}/{name}.renderer.json) · [md](./{name}/{name}.renderer.md) |\n")
+        f.write(f"| `{name}` | {disp} | {fam} | {n} | {'✓' if lfe else 'derived'} | {note} | [json](./{name}/{name}.renderer.json) · [md](./{name}/{name}.renderer.md) |\n")
 with open(f"{OUT}/DESIGN.md","w") as f:
     f.write(f"# Renderer design — cosine-power directional panning v{ALGO_VERSION}\n\n{ALGO['summary']}\n\n## Formula\n\n```\n{ALGO['formula']}\n```\n\n## Adjustable parameters\n\n")
     for k,v in PARAMS.items():
         val=v.get("value", v.get("output")); f.write(f"- **`{k}`** = `{val}` — {v['description']}\n")
     f.write(f"\n## Coordinate convention\n\n```json\n{json.dumps(CONV,indent=2)}\n```\n\nThe dome target (30 speakers + sub) is in [`sphere-fey-30.1.json`](./sphere-fey-30.1.json) (sha256 `{SPH_SHA}`).\n\n## Special: the Stereo renderer\n\n`stereo_2_0` is **parametric** — its only control is `angleBetweenLRDegrees` (0–180°, default 90°), the angle between L and R. L is placed at −angle/2 and R at +angle/2, then panned by the engine above. 0° = mono collapse, 60° = classic stereo, 90° = wide, 180° = hard-sides/enveloping. It codegens to a function of the angle rather than a static table.\n")
+    f.write("\n## Sub feed — mono bass for the dancefloor (music / club, not cinema)\n\n"
+      "This is a MUSIC / club (disco) system. The sub (output 31) gets a MONO BASS SUM of all full-range source "
+      "channels, generously low-passed at ~400 Hz (gentle 12 dB/oct). Bass is summed to mono on purpose — it keeps "
+      "the dancefloor low end tight, powerful and phase-coherent across a big multi-sub rig. The renderer is "
+      "intentionally NOT aggressive: the club's OWN sub crossover/processor sets the steep final low-pass downstream, "
+      "so the renderer just hands the subs a fat low-frequency bus. The 30 dome speakers run full-range. Multichannel "
+      "sources with a discrete LFE sum it in at unity (no cinema +10 dB); the 6 layouts without an LFE (mono, stereo, "
+      "binaural-narrow, quad, Auro 8.0, Harmony Bloom) get a derived mono bass downmix — so every renderer feeds the subs.\n")
 print(f"generated {len(index)} bundles; files:", sum(len(fs) for _,_,fs in os.walk(OUT)))
