@@ -26,6 +26,10 @@ let package = Package(
         .library(
             name: "OrbisonicVLCReference",
             targets: ["OrbisonicVLCReference"]
+        ),
+        .library(
+            name: "RendererGeometry",
+            targets: ["RendererGeometry"]
         )
     ],
     targets: [
@@ -43,6 +47,9 @@ let package = Package(
         .target(
             name: "OrbisonicVLCReference",
             dependencies: ["AudioContracts"]
+        ),
+        .target(
+            name: "RendererGeometry"
         ),
         .executableTarget(
             name: "Orbisonic",
@@ -90,6 +97,10 @@ let package = Package(
         .testTarget(
             name: "OrbisonicVLCReferenceTests",
             dependencies: ["OrbisonicVLCReference", "AudioContracts"]
+        ),
+        .testTarget(
+            name: "RendererGeometryTests",
+            dependencies: ["RendererGeometry"]
         )
     ]
 )
