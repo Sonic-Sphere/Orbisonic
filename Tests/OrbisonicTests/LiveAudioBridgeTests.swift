@@ -32,6 +32,62 @@ final class LiveAudioBridgeTests: XCTestCase {
         }
     }
 
+    func testStereoLiveInputOnSpherePresetUsesRendererOutput() {
+        // Spotify is a 2-channel live source. On the Sonic Sphere preset its
+        // renderer matrix is 2-in / 31-out and the Dante device exposes 32
+        // output channels, so the live graph must drive all 31 sphere outputs
+        // (physical 32) rather than collapsing to the 2-channel stereo monitor.
+        XCTAssertEqual(
+            OrbisonicEngine.liveRendererPhysicalOutputCount(
+                matrixInputCount: 2,
+                matrixOutputCount: 31,
+                sourceChannelCount: 2,
+                hardwareChannelCount: 32
+            ),
+            32
+        )
+    }
+
+    func testStereoLiveInputWithStereoSceneUsesMonitorFallback() {
+        // A 2-in / 2-out scene is not a sphere render; the live graph should
+        // fall back to the stereo monitor path (nil physical output count).
+        XCTAssertNil(
+            OrbisonicEngine.liveRendererPhysicalOutputCount(
+                matrixInputCount: 2,
+                matrixOutputCount: 2,
+                sourceChannelCount: 2,
+                hardwareChannelCount: 32
+            )
+        )
+    }
+
+    func testLiveRendererRequiresMatrixInputToMatchSource() {
+        // If the matrix input count does not match the live source channel
+        // count, the renderer cannot be applied and we fall back to monitor.
+        XCTAssertNil(
+            OrbisonicEngine.liveRendererPhysicalOutputCount(
+                matrixInputCount: 2,
+                matrixOutputCount: 31,
+                sourceChannelCount: 6,
+                hardwareChannelCount: 32
+            )
+        )
+    }
+
+    func testLiveRendererWithoutMultichannelHardwareStillRendersSphere() {
+        // Even without a 31-channel device attached, a sphere matrix renders
+        // its full logical output count (max with hardware channels).
+        XCTAssertEqual(
+            OrbisonicEngine.liveRendererPhysicalOutputCount(
+                matrixInputCount: 2,
+                matrixOutputCount: 31,
+                sourceChannelCount: 2,
+                hardwareChannelCount: 2
+            ),
+            31
+        )
+    }
+
     func testLiveInputCaptureBufferStorageReusesPreparedAudioBufferList() throws {
         let storage = LiveInputCaptureBufferStorage(channelCount: 2, maxFrameCapacity: 8)
 

@@ -595,6 +595,12 @@ final class OrbisonicEngine {
         let sampleRate = inputRoute.nominalSampleRate > 0
             ? inputRoute.nominalSampleRate
             : preferredOutputSampleRate()
+        // The capture rings run at the input device rate; the renderer graph runs
+        // at the Dante output rate so the source node connects 1:1 with the output
+        // clock (no AVAudioEngine SRC). LiveAudioPipe resamples capture -> output
+        // rate internally with drift compensation. currentOutputDeviceConfiguration()
+        // is the authoritative Dante rate; fall back to the capture rate (no resample).
+        let outputRenderRate = currentOutputDeviceConfiguration()?.sampleRate ?? sampleRate
 
         guard availableChannels > 0 else {
             throw LiveInputError.noInputChannels
@@ -647,6 +653,7 @@ final class OrbisonicEngine {
         let pipe = LiveAudioPipe(
             channelCount: requestedChannelCount,
             sampleRate: sampleRate,
+            outputSampleRate: outputRenderRate,
             meteringService: meteringService
         )
         let capture = try LiveInputCapture(
@@ -665,21 +672,51 @@ final class OrbisonicEngine {
         self.rendererMode = liveRendererScene.renderMode
         rendererScene = liveRendererScene
 
-        meteringService.setInactive(signal: .sonicSphere, channelCount: liveRendererScene.matrix.outputCount)
-        sourceNodes = layout.channels.enumerated().map { index, _ in
-            AVAudioSourceNode { [weak self, weak pipe] _, _, frameCount, audioBufferList in
-                let status = pipe?.render(channelIndex: index, audioBufferList: audioBufferList, frameCount: frameCount) ?? noErr
+        if let rendererFormat = rendererOutputFormat(
+            sourceSampleRate: outputRenderRate,
+            sourceChannelCount: requestedChannelCount
+        ) {
+            // Sonic Sphere renderer path: a single source node renders the full
+            // 31-output spatial matrix from the live capture rings, mirroring the
+            // local-file renderer graph (configureRendererOutputGraph in
+            // rebuildPlaybackGraph). Without this, live inputs collapse to the
+            // 2-channel stereo monitor downmix and play flat across the sphere.
+            let liveMatrix = liveRendererScene.matrix
+            configureRendererOutputGraph(format: rendererFormat)
+            let sourceNode = AVAudioSourceNode { [weak self, weak pipe] _, _, frameCount, audioBufferList in
+                let status = pipe?.render(matrix: liveMatrix, audioBufferList: audioBufferList, frameCount: frameCount) ?? noErr
                 if self?.liveInputMuted == true {
                     Self.clear(audioBufferList: audioBufferList, frameCount: Int(frameCount))
                 }
                 return status
             }
-        }
-
-        for (channel, sourceNode) in zip(layout.channels, sourceNodes) {
+            sourceNodes = [sourceNode]
             engine.attach(sourceNode)
-            engine.connect(sourceNode, to: preVolumeMixer, format: monoFormat)
-            configureNormalMonitorNode(sourceNode, for: channel, sourceChannelCount: layout.channelCount)
+            engine.connect(sourceNode, to: outputGainMixer, format: rendererFormat)
+
+            AppLogger.shared.info(
+                category: "live-input",
+                "Live input using Sonic Sphere renderer output sourceChannels=\(requestedChannelCount) logicalOutputs=\(liveMatrix.outputCount) physicalOutputs=\(Int(rendererFormat.channelCount))."
+            )
+        } else {
+            // Stereo monitor fallback: one mono source node per channel feeding
+            // the downmix monitor graph. Used when no sphere matrix applies.
+            meteringService.setInactive(signal: .sonicSphere, channelCount: liveRendererScene.matrix.outputCount)
+            sourceNodes = layout.channels.enumerated().map { index, _ in
+                AVAudioSourceNode { [weak self, weak pipe] _, _, frameCount, audioBufferList in
+                    let status = pipe?.render(channelIndex: index, audioBufferList: audioBufferList, frameCount: frameCount) ?? noErr
+                    if self?.liveInputMuted == true {
+                        Self.clear(audioBufferList: audioBufferList, frameCount: Int(frameCount))
+                    }
+                    return status
+                }
+            }
+
+            for (channel, sourceNode) in zip(layout.channels, sourceNodes) {
+                engine.attach(sourceNode)
+                engine.connect(sourceNode, to: preVolumeMixer, format: monoFormat)
+                configureNormalMonitorNode(sourceNode, for: channel, sourceChannelCount: layout.channelCount)
+            }
         }
 
         applyTuning(tuning)
@@ -2592,18 +2629,35 @@ final class OrbisonicEngine {
         AVAudioFormat(standardFormatWithSampleRate: sampleRate > 0 ? sampleRate : 48_000, channels: 2)
     }
 
+    // Decides whether a source feeding the current renderer matrix should drive
+    // the multichannel Sonic Sphere renderer graph (returns the physical output
+    // channel count) or fall back to the stereo monitor downmix (returns nil).
+    // Pure and static so the routing decision is unit-testable; mirrors the gate
+    // used by both local-file (rebuildPlaybackGraph) and live-input playback.
+    static func liveRendererPhysicalOutputCount(
+        matrixInputCount: Int,
+        matrixOutputCount: Int,
+        sourceChannelCount: Int,
+        hardwareChannelCount: Int
+    ) -> Int? {
+        guard matrixInputCount == sourceChannelCount,
+              matrixOutputCount > 2
+        else { return nil }
+        let physicalOutputCount = max(matrixOutputCount, hardwareChannelCount)
+        guard physicalOutputCount > 2 else { return nil }
+        return physicalOutputCount
+    }
+
     private func rendererOutputFormat(
         sourceSampleRate: Double,
         sourceChannelCount: Int
     ) -> AVAudioFormat? {
-        guard rendererScene.matrix.inputCount == sourceChannelCount,
-              rendererScene.matrix.outputCount > 2
-        else { return nil }
-
-        let logicalOutputCount = rendererScene.matrix.outputCount
-        let hardwareChannelCount = Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
-        let physicalOutputCount = max(logicalOutputCount, hardwareChannelCount)
-        guard physicalOutputCount > 2 else { return nil }
+        guard let physicalOutputCount = Self.liveRendererPhysicalOutputCount(
+            matrixInputCount: rendererScene.matrix.inputCount,
+            matrixOutputCount: rendererScene.matrix.outputCount,
+            sourceChannelCount: sourceChannelCount,
+            hardwareChannelCount: Int(engine.outputNode.inputFormat(forBus: 0).channelCount)
+        ) else { return nil }
 
         let sampleRate = sourceSampleRate > 0 ? sourceSampleRate : preferredOutputSampleRate()
         let layoutTag = AudioChannelLayoutTag(kAudioChannelLayoutTag_DiscreteInOrder | UInt32(physicalOutputCount))

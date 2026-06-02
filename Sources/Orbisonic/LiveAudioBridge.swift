@@ -645,21 +645,30 @@ struct LiveAudioPipeStatus: Equatable {
 final class LiveAudioPipe {
     let channelCount: Int
     let sampleRate: Double
+    let outputSampleRate: Double
 
     private let rings: [LiveChannelRingBuffer]
     private let meteringService: MeteringService?
     private let meterLevels: RealtimeMeterLevelStorage
     private let callbackSafetyProbe: RealtimeCallbackSafetyProbe?
+    private let baseResampleStep: Double
+    private let resampleTargetFrames: Int
+    private let driftController: LiveDriftController
+    private let converter: LiveSampleRateConverter
 
     init(
         channelCount: Int,
         sampleRate: Double,
+        outputSampleRate: Double? = nil,
         latencySeconds: Double = 0.15,
         meteringService: MeteringService? = nil,
         callbackSafetyProbe: RealtimeCallbackSafetyProbe? = nil
     ) {
         self.channelCount = channelCount
         self.sampleRate = sampleRate
+        let candidateOutputRate = outputSampleRate ?? sampleRate
+        let resolvedOutputRate = candidateOutputRate > 0 ? candidateOutputRate : sampleRate
+        self.outputSampleRate = resolvedOutputRate
         self.meteringService = meteringService
         self.callbackSafetyProbe = callbackSafetyProbe
         let targetLatencyFrames = max(Int(sampleRate * max(latencySeconds, 0.05)), 512)
@@ -673,6 +682,10 @@ final class LiveAudioPipe {
             )
         }
         meterLevels = RealtimeMeterLevelStorage(channelCount: channelCount)
+        baseResampleStep = (sampleRate > 0 && resolvedOutputRate > 0) ? sampleRate / resolvedOutputRate : 1.0
+        resampleTargetFrames = targetLatencyFrames
+        driftController = LiveDriftController()
+        converter = LiveSampleRateConverter(channelCount: channelCount)
     }
 
     func write(buffer: AVAudioPCMBuffer) {
@@ -780,22 +793,48 @@ final class LiveAudioPipe {
             return noErr
         }
 
-        callbackSafetyProbe?.recordCallbackAllocation(count: matrix.inputCount + 1)
+        // Drift-compensating resample from the capture-rate rings to the Dante
+        // output rate. The capture and output clocks free-run independently, so a
+        // fixed ratio cannot hold the buffer steady; we nudge the resample step
+        // from the measured ring fill to keep latency at target, absorbing drift
+        // that otherwise drops frames (popping) or underflows (cutouts).
+        let fill = rings.map { $0.status().availableFrames }.min() ?? 0
+        let correction = driftController.rateCorrection(
+            availableFrames: fill,
+            targetFrames: resampleTargetFrames
+        )
+        let step = baseResampleStep * (1 + correction)
+        let consumed = converter.framesToConsume(outputFrames: frames, step: step)
+
+        callbackSafetyProbe?.recordCallbackAllocation(count: matrix.inputCount * 2 + 1)
         var inputScratch = Array(
-            repeating: Array(repeating: Float(0), count: frames),
+            repeating: Array(repeating: Float(0), count: max(consumed, 1)),
             count: matrix.inputCount
         )
-
-        for inputIndex in 0..<matrix.inputCount {
-            inputScratch[inputIndex].withUnsafeMutableBufferPointer { destination in
-                guard let baseAddress = destination.baseAddress else { return }
-                _ = rings[inputIndex].read(into: baseAddress, frameCount: frames)
+        if consumed > 0 {
+            for inputIndex in 0..<matrix.inputCount {
+                inputScratch[inputIndex].withUnsafeMutableBufferPointer { destination in
+                    guard let baseAddress = destination.baseAddress else { return }
+                    _ = rings[inputIndex].read(into: baseAddress, frameCount: consumed)
+                }
             }
         }
 
+        var resampled = Array(
+            repeating: Array(repeating: Float(0), count: frames),
+            count: matrix.inputCount
+        )
+        converter.process(
+            inputs: inputScratch,
+            inputFrameCount: consumed,
+            step: step,
+            outputFrames: frames,
+            into: &resampled
+        )
+
         RendererMatrixSampleRenderer.render(
             matrix: matrix,
-            inputSamples: inputScratch,
+            inputSamples: resampled,
             frameCount: frames,
             outputBuffers: buffers
         )
