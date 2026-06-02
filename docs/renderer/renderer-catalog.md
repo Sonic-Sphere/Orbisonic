@@ -1,40 +1,53 @@
-# Orbisonic Renderer Catalog
+# Sonic Sphere Renderer Catalog
 
-Stable IDs and descriptive names for every renderer in the Sonic Sphere renderer
-(`RendererRenderMode` in [`Sources/Orbisonic/RendererModule.swift`](../../Sources/Orbisonic/RendererModule.swift)).
-Each renderer maps a source channel layout onto the 30.1 Sonic Sphere via `FeyStaticBedRenderer`.
+The current renderer set is the **data-driven geometry-engine** catalog below — **19 layouts**, including the full **Dolby family**. Each renderer is a reproducible spec bundle (source geometry + the design math + the resulting kernel + a SpatGRIS speaker-setup XML) under [`renderers/`](../../renderers/) — see [`renderers/README.md`](../../renderers/README.md) and [`renderers/DESIGN.md`](../../renderers/DESIGN.md).
 
-`rendererId` values are **permanent** identifiers (diagnostics, presets, telemetry): never
-renumber an existing renderer — only append new IDs for new renderers.
+> **Sub feed:** every renderer feeds the sub(s) a **mono bass sum** for the dancefloor (music / club). 13 layouts fold a discrete LFE into that mono sum; the other 6 derive it. *(mono sub-bass: PR #17; SpatGRIS XML per folder: PR #15.)*
 
-| ID | Enum case | rawValue | Display name | Descriptive name | Source ch | Family |
-|---:|-----------|----------|--------------|------------------|:---------:|--------|
-| 0 | `automatic` | `automatic` | Auto | Automatic Source-Matched Selector | any | Selector — resolves to the renderer matching the source channel count |
-| 1 | `mono` | `mono` | Mono | Mono Omnifield Bed | 1 | Rendered bed |
-| 2 | `stereo` | `stereo` | Stereo 90 | Stereo 90 Frontal Bed | 2 | Rendered bed — **active default for 2-channel sources** |
-| 3 | `binaural` | `binaural_180` | Binaural 180 | Binaural 180 Hemisphere Bed | 2 | Rendered bed — opt-in alternative for 2-channel sources |
-| 4 | `quad` | `quad` | Quad | Quadraphonic 4.0 Corner Bed | 4 | Rendered bed |
-| 5 | `surround51` | `surround51` | 5.1 | Surround 5.1 Cinema Bed | 6 | Rendered bed |
-| 6 | `auro80` | `auro_8_0` | Auro 8.0 | Auro 8.0 Height Bed | 8 | Auro bed |
-| 7 | `auro91` | `auro_9_1` | Auro 9.1 | Auro 9.1 Height Bed | 10 | Auro bed |
-| 8 | `auro101` | `auro_10_1` | Auro 10.1 | Auro 10.1 Top + Height Bed | 11 | Auro bed |
-| 9 | `auro111714h` | `auro_11_1_7_1_4h` | Auro 11.1 7+4H | Auro 11.1 (7.1 + 4 Height) Bed | 12 | Auro bed |
-| 10 | `auro111515hT` | `auro_11_1_5_1_5h_t` | Auro 11.1 5+5H+T | Auro 11.1 (5.1 + 5 Height + Top) Bed | 12 | Auro bed |
-| 11 | `auro121` | `auro_12_1` | Auro 12.1 | Auro 12.1 Height Bed | 13 | Auro bed |
-| 12 | `auro131` | `auro_13_1` | Auro 13.1 | Auro 13.1 Height + Top Bed | 14 | Auro bed |
-| 13 | `direct30` | `direct30` | Direct 30 | Direct 30 Sphere Passthrough | 30 | Passthrough — identity map to the 30 full-range outputs |
-| 14 | `direct31` | `direct31` | Direct 30.1 | Direct 30.1 Sphere Passthrough | 31 | Passthrough — identity map incl. LFE |
-| 15 | `directPassthrough` | `direct_passthrough` | Direct Passthrough | Direct N-Channel Passthrough | 1–64 | Passthrough — first min(N, 31) channels 1:1; extras dropped; 31st → LFE |
+## Core
 
-## Active renderer (as shipped)
+| Renderer | layout id | ch | LFE | Sub feed | Special | Spec |
+|---|---|--:|:--:|---|---|---|
+| Mono 1.0 | `mono_1_0` | 1 | — | derived mono bass |  | [json](../../renderers/mono_1_0/mono_1_0.renderer.json) · [md](../../renderers/mono_1_0/mono_1_0.renderer.md) |
+| Stereo (parametric) | `stereo_2_0` | 2 | — | derived mono bass | ⭐ parametric L↔R angle 0–180° | [json](../../renderers/stereo_2_0/stereo_2_0.renderer.json) · [md](../../renderers/stereo_2_0/stereo_2_0.renderer.md) |
+| Binaural 2.0 (narrow) | `binaural_2_0_narrow` | 2 | — | derived mono bass |  | [json](../../renderers/binaural_2_0_narrow/binaural_2_0_narrow.renderer.json) · [md](../../renderers/binaural_2_0_narrow/binaural_2_0_narrow.renderer.md) |
+| Quad 4.0 | `quad_4_0` | 4 | — | derived mono bass |  | [json](../../renderers/quad_4_0/quad_4_0.renderer.json) · [md](../../renderers/quad_4_0/quad_4_0.renderer.md) |
 
-At launch the renderer mode is forced to **Auto** — `loadRendererRenderMode()` returns
-`.automatic` — and the two-channel preference defaults to **Stereo 90** —
-`loadRendererTwoChannelPreference()` returns `.stereo`.
+## Dolby family
 
-So a **two-channel (stereo) source renders through renderer 2 — Stereo 90 Frontal Bed.**
-Binaural 180 (renderer 3) is used only when the user switches the two-channel preference.
-Auto otherwise selects the renderer whose source channel count matches the input; channel
-counts with no named layout fall back to renderer 15 (Direct N-Channel Passthrough).
+| Renderer | layout id | ch | LFE | Sub feed | Special | Spec |
+|---|---|--:|:--:|---|---|---|
+| 5.1 | `5_1` | 6 | ✓ | LFE + mono bass |  | [json](../../renderers/5_1/5_1.renderer.json) · [md](../../renderers/5_1/5_1.renderer.md) |
+| Dolby 5.1.2 | `5_1_2` | 8 | ✓ | LFE + mono bass |  | [json](../../renderers/5_1_2/5_1_2.renderer.json) · [md](../../renderers/5_1_2/5_1_2.renderer.md) |
+| Dolby 5.1.4 | `5_1_4` | 10 | ✓ | LFE + mono bass |  | [json](../../renderers/5_1_4/5_1_4.renderer.json) · [md](../../renderers/5_1_4/5_1_4.renderer.md) |
+| Dolby 7.1 | `7_1` | 8 | ✓ | LFE + mono bass |  | [json](../../renderers/7_1/7_1.renderer.json) · [md](../../renderers/7_1/7_1.renderer.md) |
+| Dolby 7.1.2 | `7_1_2` | 10 | ✓ | LFE + mono bass |  | [json](../../renderers/7_1_2/7_1_2.renderer.json) · [md](../../renderers/7_1_2/7_1_2.renderer.md) |
+| Dolby 7.1.4 | `7_1_4` | 12 | ✓ | LFE + mono bass |  | [json](../../renderers/7_1_4/7_1_4.renderer.json) · [md](../../renderers/7_1_4/7_1_4.renderer.md) |
+| Dolby 9.1.4 | `9_1_4` | 14 | ✓ | LFE + mono bass |  | [json](../../renderers/9_1_4/9_1_4.renderer.json) · [md](../../renderers/9_1_4/9_1_4.renderer.md) |
+| Dolby 9.1.6 | `9_1_6` | 16 | ✓ | LFE + mono bass |  | [json](../../renderers/9_1_6/9_1_6.renderer.json) · [md](../../renderers/9_1_6/9_1_6.renderer.md) |
 
-The `rendererId` and `descriptiveName` for each mode are defined on `RendererRenderMode`.
+## Auro-3D
+
+| Renderer | layout id | ch | LFE | Sub feed | Special | Spec |
+|---|---|--:|:--:|---|---|---|
+| Auro 8.0 | `auro_8_0` | 8 | — | derived mono bass |  | [json](../../renderers/auro_8_0/auro_8_0.renderer.json) · [md](../../renderers/auro_8_0/auro_8_0.renderer.md) |
+| Auro 9.1 | `auro_9_1` | 10 | ✓ | LFE + mono bass |  | [json](../../renderers/auro_9_1/auro_9_1.renderer.json) · [md](../../renderers/auro_9_1/auro_9_1.renderer.md) |
+| Auro 10.1 | `auro_10_1` | 11 | ✓ | LFE + mono bass |  | [json](../../renderers/auro_10_1/auro_10_1.renderer.json) · [md](../../renderers/auro_10_1/auro_10_1.renderer.md) |
+| Auro 11.1 (7+4H) | `auro_11_1_7_1_4h` | 12 | ✓ | LFE + mono bass |  | [json](../../renderers/auro_11_1_7_1_4h/auro_11_1_7_1_4h.renderer.json) · [md](../../renderers/auro_11_1_7_1_4h/auro_11_1_7_1_4h.renderer.md) |
+| Auro 11.1 (5+5H+T) | `auro_11_1_5_1_5h_t` | 12 | ✓ | LFE + mono bass |  | [json](../../renderers/auro_11_1_5_1_5h_t/auro_11_1_5_1_5h_t.renderer.json) · [md](../../renderers/auro_11_1_5_1_5h_t/auro_11_1_5_1_5h_t.renderer.md) |
+| Auro 13.1 | `auro_13_1` | 14 | ✓ | LFE + mono bass |  | [json](../../renderers/auro_13_1/auro_13_1.renderer.json) · [md](../../renderers/auro_13_1/auro_13_1.renderer.md) |
+
+## Custom
+
+| Renderer | layout id | ch | LFE | Sub feed | Special | Spec |
+|---|---|--:|:--:|---|---|---|
+| Harmony Bloom (8ch) | `harmony_bloom_8ch` | 8 | — | derived mono bass |  | [json](../../renderers/harmony_bloom_8ch/harmony_bloom_8ch.renderer.json) · [md](../../renderers/harmony_bloom_8ch/harmony_bloom_8ch.renderer.md) |
+
+## How a layout becomes a renderer
+
+Each source channel is panned onto the 30-speaker dome by **direction** (cosine-power weighting + a per-speaker power cap), so the kernel is derived from geometry, not hand-tuned. Dolby vs Auro channel-order differences are handled by reading each channel's role/position. Full math: [`renderers/DESIGN.md`](../../renderers/DESIGN.md).
+
+## Legacy Swift enum (`RendererRenderMode`)
+
+The shipping Swift code still routes 2-channel/multichannel sources via the `RendererRenderMode` enum (IDs 0–15) in `Sources/Orbisonic/RendererModule.swift`. The geometry-engine renderers above **supersede** it — notably the enum has **no dedicated 6.1 / 7.1 / 7.1.2 beds** (8-/10-channel sources fall back to Auro by count), which is exactly the gap the Dolby family here closes. Wiring the geometry engine into Swift is tracked separately.
+
