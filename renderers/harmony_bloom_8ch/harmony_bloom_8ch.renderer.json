@@ -693,6 +693,68 @@
       }
     ]
   },
+  "hasSubFeed": true,
+  "bassManagement": {
+    "enabled": true,
+    "context": "music / club (disco)",
+    "monoBass": true,
+    "subFeedLowPass": {
+      "freqHz": 400,
+      "slopeDbPerOct": 12
+    },
+    "mainsHighPass": "none (run the dome full-range; the club sub rig adds the bottom)",
+    "clubSubCrossover": "handled downstream by the club's own sub processor/crossover",
+    "lfeGainDb": 0.0,
+    "subOutput": 31,
+    "subOutputIndex": 30,
+    "derivedLFE": true,
+    "subFeed": {
+      "description": "Sub (output 31) = MONO bass sum of all full-range source channels, generously low-passed at ~400 Hz; this layout has NO discrete LFE, so the sub is a derived mono bass downmix. Mono bass for the dancefloor; the club's own sub crossover sets the final low-pass.",
+      "fullRangeBassDownmix": [
+        {
+          "channelIndex": 0,
+          "label": "HB1",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 1,
+          "label": "HB2",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 2,
+          "label": "HB3",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 3,
+          "label": "HB4",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 4,
+          "label": "HB5",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 5,
+          "label": "HB6",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 6,
+          "label": "HB7",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 7,
+          "label": "HB8",
+          "gain": 1.0
+        }
+      ],
+      "lfe": []
+    }
+  },
   "checksums": {
     "kernelSha256": "1a7e1284235c2b00cfaa5cbd2f04024cdb1e68f43bdd5a87dde2b8a236b15520",
     "geometrySha256": "39e50ef2f2492ba920ccba111434644d4de699a897dbf1119d527d7d1fbe12e2"

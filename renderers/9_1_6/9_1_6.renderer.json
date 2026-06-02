@@ -1261,6 +1261,110 @@
       }
     ]
   },
+  "hasSubFeed": true,
+  "bassManagement": {
+    "enabled": true,
+    "context": "music / club (disco)",
+    "monoBass": true,
+    "subFeedLowPass": {
+      "freqHz": 400,
+      "slopeDbPerOct": 12
+    },
+    "mainsHighPass": "none (run the dome full-range; the club sub rig adds the bottom)",
+    "clubSubCrossover": "handled downstream by the club's own sub processor/crossover",
+    "lfeGainDb": 0.0,
+    "subOutput": 31,
+    "subOutputIndex": 30,
+    "derivedLFE": false,
+    "subFeed": {
+      "description": "Sub (output 31) = MONO bass sum of all full-range source channels, generously low-passed at ~400 Hz plus the discrete LFE channel(s) at unity. Mono bass for the dancefloor; the club's own sub crossover sets the final low-pass.",
+      "fullRangeBassDownmix": [
+        {
+          "channelIndex": 0,
+          "label": "L",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 1,
+          "label": "R",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 2,
+          "label": "C",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 4,
+          "label": "Lw",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 5,
+          "label": "Rw",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 6,
+          "label": "Lss",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 7,
+          "label": "Rss",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 8,
+          "label": "Lrs",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 9,
+          "label": "Rrs",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 10,
+          "label": "Ltf",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 11,
+          "label": "Rtf",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 12,
+          "label": "Ltr",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 13,
+          "label": "Rtr",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 14,
+          "label": "Ltm",
+          "gain": 1.0
+        },
+        {
+          "channelIndex": 15,
+          "label": "Rtm",
+          "gain": 1.0
+        }
+      ],
+      "lfe": [
+        {
+          "channelIndex": 3,
+          "label": "LFE",
+          "gainDb": 0.0,
+          "gainLinear": 1.0
+        }
+      ]
+    }
+  },
   "checksums": {
     "kernelSha256": "2f84427390372bcfc9b119e242a87e5af16a3da8d37b8d34c161f6bc32372487",
     "geometrySha256": "48051723a163b89458c7d1b48da05546aa82c427b467df596bee9a7619ac5fac"

@@ -1,6 +1,6 @@
 # Auro 8.0 — Sonic Sphere renderer spec
 
-- **Layout id:** `auro_8_0`  ·  **Family:** auro  ·  **Channels:** 8 (0 LFE)
+- **Layout id:** `auro_8_0`  ·  **Family:** auro  ·  **Channels:** 8  ·  **Sub:** derived mono bass downmix
 - **Target:** Fey 30.1 dome (30 full-range + sub)  ·  **Algorithm:** cosine-power directional panning v1.0.0
 - **Provenance:** `Sonic-Sphere/spat-speaker-layouts/layout_geometry.csv` @ `8d20f7f87d`
 
@@ -28,7 +28,7 @@ Each non-LFE source channel is aimed in its real-world direction and spread acro
 ```
 w_i = max(0, d · ŝ_i) ^ p          p (cosineSharpness) = 3.0
 clip w_i ≤ √cap, renormalize Σw_i²=1   cap = 0.22 (≤ 0.469 amplitude), 6 iters
-LFE channels → sub (output 31) at unity
+dome speakers run full-range; sub gets a gentle ≤400 Hz mono feed (see below)
 ```
 
 **What the adjustable parameters do:**
@@ -53,6 +53,23 @@ Coordinate convention: `+x` listener-right, `+y` front, `+z` up; azimuth 0° = f
 | `HR` | heightFrontRight | #18@+36°:0.48, #23@+0°:0.48, #29@+36°:0.48, #24@+72°:0.46, #12@+0°:0.19 |
 | `HLs` | heightRearLeft | #16@-108°:0.48, #21@-144°:0.48, #22@-73°:0.48, #27@-108°:0.48, #15@-144°:0.18 |
 | `HRs` | heightRearRight | #19@+108°:0.48, #24@+72°:0.48, #25@+144°:0.48, #30@+108°:0.48, #14@+144°:0.18 |
+## Sub feed (mono bass for the dancefloor)
+
+This layout has **no discrete LFE** — its sub is a **derived mono bass downmix** (a mono sum of its channels).
+
+This is a **music / club (disco)** system, not cinema. Every renderer feeds the sub(s) (output 31) a **mono bass sum** — mono keeps the dancefloor low end tight, loud and phase-coherent across a big multi-sub rig:
+
+- the sub gets a **generous ≤400 Hz** (gentle 12 dB/oct) **mono sum** of all full-range channels — `L`, `R`, `Ls`, `Rs`, `HL`, `HR`, `HLs`, `HRs`;
+- the 30 dome speakers **run full-range** — the **club's own sub crossover** sets the final low-pass, so the renderer stays gentle.
+
+**Sub-feed parameters:**
+
+- **`subFeedLowPassHz`** = `400` — Feed the subs everything below ~400 Hz (a generous, gentle band-limit). This is NOT the final crossover — the club's own sub processor/crossover sets the real cutoff, so the renderer stays un-aggressive and just hands the subs a fat low-frequency bus.
+- **`subFeedSlopeDbPerOct`** = `12` — Gentle 12 dB/oct low-pass on the sub feed; the club's sub rig provides the steep final roll-off.
+- **`monoBass`** = `True` — Bass is summed to MONO before the subs. Mono sub bass is standard for clubs/discos — it keeps the dancefloor low end tight, powerful and phase-coherent across a big multi-sub rig (stereo bass smears and partially cancels on a large system).
+- **`mainsHighPass`** = `none` — The renderer does NOT high-pass the 30 dome speakers — run them full-range; the subs add the bottom. Integration is left to the club's sub crossover / system processor.
+- **`lfeGainDb`** = `0.0` — Discrete LFE channels (in multichannel music) are summed into the mono sub at UNITY. The cinema +10 dB LFE bump is intentionally NOT applied — this is music; the DJ/system sets sub level.
+
 
 ## Reproducibility
 

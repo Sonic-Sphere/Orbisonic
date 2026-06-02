@@ -33,3 +33,7 @@ The dome target (30 speakers + sub) is in [`sphere-fey-30.1.json`](./sphere-fey-
 ## Special: the Stereo renderer
 
 `stereo_2_0` is **parametric** — its only control is `angleBetweenLRDegrees` (0–180°, default 90°), the angle between L and R. L is placed at −angle/2 and R at +angle/2, then panned by the engine above. 0° = mono collapse, 60° = classic stereo, 90° = wide, 180° = hard-sides/enveloping. It codegens to a function of the angle rather than a static table.
+
+## Sub feed — mono bass for the dancefloor (music / club, not cinema)
+
+This is a MUSIC / club (disco) system. The sub (output 31) gets a MONO BASS SUM of all full-range source channels, generously low-passed at ~400 Hz (gentle 12 dB/oct). Bass is summed to mono on purpose — it keeps the dancefloor low end tight, powerful and phase-coherent across a big multi-sub rig. The renderer is intentionally NOT aggressive: the club's OWN sub crossover/processor sets the steep final low-pass downstream, so the renderer just hands the subs a fat low-frequency bus. The 30 dome speakers run full-range. Multichannel sources with a discrete LFE sum it in at unity (no cinema +10 dB); the 6 layouts without an LFE (mono, stereo, binaural-narrow, quad, Auro 8.0, Harmony Bloom) get a derived mono bass downmix — so every renderer feeds the subs.
